@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Horizon Survey</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: #000; color: #eee; font-family: system-ui, sans-serif;
+    overflow: hidden; overscroll-behavior: none;
+  }
+  #stage { position: fixed; inset: 0; overflow: hidden; }
+  #cam {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; transform-origin: center center;
+    background: #111;
+  }
+  #crosshair {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 64px; height: 64px; pointer-events: none;
+  }
+  #crosshair svg { width: 100%; height: 100%; display: block; }
+  #hud {
+    position: absolute; top: 0; left: 0; right: 0;
+    padding: max(10px, env(safe-area-inset-top)) 10px 8px;
+    background: linear-gradient(rgba(0,0,0,.75), rgba(0,0,0,0));
+    display: flex; justify-content: space-between; align-items: flex-start;
+    font-variant-numeric: tabular-nums;
+  }
+  #reading { font-size: 1.3rem; line-height: 1.3; }
+  #reading .label { font-size: 0.7rem; color: #9ad; letter-spacing: .05em; }
+  #status { font-size: 0.75rem; color: #f88; max-width: 55vw; text-align: right; }
+  #zoomBar {
+    position: absolute; right: 10px; top: 90px; bottom: 220px;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+  }
+  #zoomBar button {
+    width: 44px; height: 44px; border-radius: 50%; border: none;
+    background: rgba(255,255,255,.18); color: #fff; font-size: 1.3rem;
+  }
+  #zoomLabel { font-size: 0.7rem; color: #ccc; }
+  #panel {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    padding: 8px 10px max(10px, env(safe-area-inset-bottom));
+    background: rgba(10,10,14,.92); border-top: 1px solid #333;
+    max-height: 44vh; display: flex; flex-direction: column;
+  }
+  #actions { display: flex; gap: 8px; margin-bottom: 6px; }
+  #actions button {
+    flex: 1; padding: 12px 6px; border-radius: 10px; border: none;
+    font-size: 0.95rem; font-weight: 600;
+  }
+  #recordBtn { background: #2e7d32; color: #fff; }
+  #downloadBtn { background: #1565c0; color: #fff; }
+  #clearBtn { background: #444; color: #eee; }
+  #count { font-size: 0.75rem; color: #999; margin-bottom: 4px; }
+  #list { overflow-y: auto; font-size: 0.8rem; }
+  #list table { width: 100%; border-collapse: collapse; }
+  #list th, #list td { text-align: left; padding: 3px 6px; border-bottom: 1px solid #222; }
+  #list th { color: #888; font-weight: 500; position: sticky; top: 0; background: #0a0a0e; }
+  #list .del { color: #f66; text-align: right; cursor: pointer; }
+  #startOverlay {
+    position: fixed; inset: 0; background: #000; color: #eee;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; padding: 24px; text-align: center; z-index: 10;
+  }
+  #startOverlay button {
+    padding: 14px 28px; font-size: 1.05rem; font-weight: 600;
+    border-radius: 10px; border: none; background: #2e7d32; color: #fff;
+  }
+  #startOverlay p { max-width: 340px; color: #aaa; font-size: 0.85rem; line-height: 1.4; }
+</style>
+</head>
+<body>
+
+<div id="startOverlay">
+  <h2 style="margin:0;">Horizon Survey</h2>
+  <p>Walk around your antenna site, aim the crosshair at the top of each
+     obstruction (building, tree, terrain), and tap Record. Needs camera
+     and compass/tilt sensor access.</p>
+  <button id="startBtn">Start</button>
+  <p id="startError" style="color:#f88;"></p>
+</div>
+
+<div id="stage" style="display:none;">
+  <video id="cam" autoplay playsinline muted></video>
+  <div id="crosshair">
+    <svg viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="18" fill="none" stroke="#0f0" stroke-width="1.5" opacity="0.8"/>
+      <line x1="32" y1="2" x2="32" y2="20" stroke="#0f0" stroke-width="1.5"/>
+      <line x1="32" y1="44" x2="32" y2="62" stroke="#0f0" stroke-width="1.5"/>
+      <line x1="2" y1="32" x2="20" y2="32" stroke="#0f0" stroke-width="1.5"/>
+      <line x1="44" y1="32" x2="62" y2="32" stroke="#0f0" stroke-width="1.5"/>
+    </svg>
+  </div>
+
+  <div id="hud">
+    <div id="reading">
+      <div class="label">AZIMUTH</div>
+      <div id="azVal">--.-&deg;</div>
+      <div class="label">ELEVATION</div>
+      <div id="elVal">--.-&deg;</div>
+    </div>
+    <div id="status"></div>
+  </div>
+
+  <div id="zoomBar">
+    <button id="zoomIn">+</button>
+    <div id="zoomLabel">1.0x</div>
+    <button id="zoomOut">&minus;</button>
+  </div>
+
+  <div id="panel">
+    <div id="actions">
+      <button id="recordBtn">Record point</button>
+      <button id="downloadBtn">Download CSV</button>
+      <button id="clearBtn">Clear</button>
+    </div>
+    <div id="count">0 points</div>
+    <div id="list">
+      <table>
+        <thead><tr><th>Az</th><th>El</th><th></th></tr></thead>
+        <tbody id="listBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const STORAGE_KEY = "horizonSurveyPoints";
+  let points = [];
+  let currentAz = null, currentEl = null;
+  let zoomLevel = 1.0;
+  let hwZoomTrack = null, hwZoomCaps = null;
+
+  const $ = (id) => document.getElementById(id);
+
+  function loadPoints() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      points = raw ? JSON.parse(raw) : [];
+    } catch (e) { points = []; }
+  }
+
+  function savePoints() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(points)); }
+    catch (e) { /* storage full or unavailable -- data still in memory this session */ }
+  }
+
+  function renderList() {
+    const tbody = $("listBody");
+    tbody.innerHTML = "";
+    const sorted = points.map((p, i) => ({ ...p, i })).sort((a, b) => a.az - b.az);
+    for (const p of sorted) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${p.az.toFixed(1)}&deg;</td><td>${p.el.toFixed(1)}&deg;</td><td class="del" data-i="${p.i}">delete</td>`;
+      tbody.appendChild(tr);
+    }
+    $("count").textContent = points.length + " point" + (points.length === 1 ? "" : "s");
+  }
+
+  $("listBody").addEventListener("click", (e) => {
+    const del = e.target.closest(".del");
+    if (!del) return;
+    const i = parseInt(del.dataset.i, 10);
+    points.splice(i, 1);
+    savePoints();
+    renderList();
+  });
+
+  $("recordBtn").addEventListener("click", () => {
+    if (currentAz === null || currentEl === null) {
+      setStatus("no sensor reading yet");
+      return;
+    }
+    points.push({ az: currentAz, el: currentEl, t: new Date().toISOString() });
+    savePoints();
+    renderList();
+  });
+
+  $("clearBtn").addEventListener("click", () => {
+    if (points.length && !confirm("Clear all " + points.length + " recorded points?")) return;
+    points = [];
+    savePoints();
+    renderList();
+  });
+
+  $("downloadBtn").addEventListener("click", () => {
+    const sorted = [...points].sort((a, b) => a.az - b.az);
+    let csv = "azimuth_deg,elevation_deg,timestamp\n";
+    for (const p of sorted) csv += `${p.az.toFixed(2)},${p.el.toFixed(2)},${p.t}\n`;
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "horizon_survey_" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
+
+  function setStatus(msg) { $("status").textContent = msg || ""; }
+
+  // ---- Orientation (compass heading + tilt) ----
+  // beta: front-back tilt, 90deg = phone held upright/vertical (camera aimed
+  // level at the horizon), 180deg = camera aimed straight up, 0deg = camera
+  // aimed straight down -- so elevation = beta - 90. This assumes the phone
+  // is held reasonably upright (not rolled sideways); acceptable for a
+  // walk-around survey where sub-degree precision isn't meaningful anyway.
+  //
+  // alpha: compass heading. Chrome's 'deviceorientationabsolute' event (or
+  // deviceorientation with event.absolute===true) gives alpha referenced to
+  // true/magnetic north; compass bearing = (360 - alpha) % 360 is the usual
+  // correction. VERIFY ON YOUR OWN DEVICE before trusting readings -- compass
+  // sensor behavior varies by phone, and this hasn't been tested on real
+  // hardware yet. If azimuth reads backwards or offset, adjust the formula
+  // below (search HEADING_CORRECTION).
+  function handleOrientation(event) {
+    if (event.beta === null || event.alpha === null) {
+      setStatus("no orientation data from sensor");
+      return;
+    }
+    currentEl = event.beta - 90;
+    // HEADING_CORRECTION: flip/adjust here if azimuth reads wrong on your phone
+    let heading = (360 - event.alpha) % 360;
+    if (heading < 0) heading += 360;
+    currentAz = heading;
+    $("azVal").innerHTML = currentAz.toFixed(1) + "&deg;";
+    $("elVal").innerHTML = currentEl.toFixed(1) + "&deg;";
+  }
+
+  async function startOrientation() {
+    // iOS Safari requires an explicit permission request behind a user
+    // gesture; Android Chrome does not expose this API and sensors just
+    // work once granted at the OS/browser level.
+    if (typeof DeviceOrientationEvent !== "undefined" &&
+        typeof DeviceOrientationEvent.requestPermission === "function") {
+      const perm = await DeviceOrientationEvent.requestPermission();
+      if (perm !== "granted") throw new Error("orientation sensor permission denied");
+    }
+    const absoluteHandler = (e) => { if (e.absolute || e.webkitCompassHeading !== undefined) handleOrientation(e); };
+    window.addEventListener("deviceorientationabsolute", handleOrientation, true);
+    window.addEventListener("deviceorientation", absoluteHandler, true);
+  }
+
+  // ---- Camera ----
+  async function startCamera() {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+      audio: false,
+    });
+    $("cam").srcObject = stream;
+
+    const track = stream.getVideoTracks()[0];
+    const caps = track.getCapabilities ? track.getCapabilities() : null;
+    if (caps && caps.zoom) {
+      hwZoomTrack = track;
+      hwZoomCaps = caps;
+      zoomLevel = caps.zoom; // current hardware zoom, not necessarily 1.0
+    }
+    applyZoom();
+  }
+
+  // ---- Zoom (hardware if available, else CSS digital zoom) ----
+  function applyZoom() {
+    if (hwZoomTrack && hwZoomCaps) {
+      const z = Math.min(hwZoomCaps.max, Math.max(hwZoomCaps.min, zoomLevel));
+      hwZoomTrack.applyConstraints({ advanced: [{ zoom: z }] }).catch(() => {});
+      $("zoomLabel").textContent = z.toFixed(1) + "x";
+    } else {
+      $("cam").style.transform = "scale(" + zoomLevel + ")";
+      $("zoomLabel").textContent = zoomLevel.toFixed(1) + "x (digital)";
+    }
+  }
+
+  $("zoomIn").addEventListener("click", () => {
+    const step = hwZoomCaps ? (hwZoomCaps.step || 0.1) * 5 : 0.5;
+    const max = hwZoomCaps ? hwZoomCaps.max : 5;
+    zoomLevel = Math.min(max, zoomLevel + step);
+    applyZoom();
+  });
+  $("zoomOut").addEventListener("click", () => {
+    const step = hwZoomCaps ? (hwZoomCaps.step || 0.1) * 5 : 0.5;
+    const min = hwZoomCaps ? hwZoomCaps.min : 1;
+    zoomLevel = Math.max(min, zoomLevel - step);
+    applyZoom();
+  });
+
+  // ---- Start flow ----
+  $("startBtn").addEventListener("click", async () => {
+    $("startError").textContent = "";
+    try {
+      await startCamera();
+      await startOrientation();
+      loadPoints();
+      renderList();
+      $("startOverlay").style.display = "none";
+      $("stage").style.display = "block";
+    } catch (err) {
+      $("startError").textContent = "Couldn't start: " + err.message +
+        ". This needs an HTTPS page and camera + motion-sensor permission.";
+    }
+  });
+})();
+</script>
+</body>
+</html>
