@@ -209,3 +209,54 @@ export function azToX(cal, az, width) {
   }
   return best;
 }
+
+// ---- Sample averaging ---------------------------------------------------
+//
+// A phone magnetometer is noisy at the scale this tool cares about, and the
+// tap that records a point moves the phone as well. Averaging a short window
+// of samples removes most of that, and the spread of the window is worth
+// showing on its own: a bearing that varies by ten degrees while you hold
+// still is the signal that something nearby is disturbing the compass.
+
+/**
+ * Mean of a set of bearings, in [0,360).
+ *
+ * Bearings do not average arithmetically: 359 and 1 are two degrees apart
+ * but their arithmetic mean is 180. Averaging the unit vectors instead gives
+ * the answer that wraps correctly. Returns null for an empty set.
+ */
+export function circularMeanDeg(anglesDeg) {
+  if (!anglesDeg.length) return null;
+  let sx = 0, sy = 0;
+  for (const a of anglesDeg) {
+    sx += Math.cos(a * RAD);
+    sy += Math.sin(a * RAD);
+  }
+  return normalizeAz(Math.atan2(sy, sx) * DEG);
+}
+
+/**
+ * How far the worst sample sits from the circular mean, going the short way
+ * round. Null for an empty set.
+ */
+export function circularSpreadDeg(anglesDeg) {
+  const mean = circularMeanDeg(anglesDeg);
+  if (mean === null) return null;
+  let worst = 0;
+  for (const a of anglesDeg) worst = Math.max(worst, Math.abs(azDelta(mean, a)));
+  return worst;
+}
+
+/**
+ * Middle value of a set, leaving the caller's array alone. Null when empty.
+ *
+ * Used for elevation rather than a mean, because one sample taken as the
+ * finger lands is exactly the kind of outlier a median drops and a mean
+ * carries.
+ */
+export function median(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}

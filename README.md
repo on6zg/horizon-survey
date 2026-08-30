@@ -28,6 +28,13 @@ real compass on your own phone, see Compass heading below.
    site. A short cooldown after each tap (with a "Recorded" confirmation
    on the button) stops an accidental double-tap from recording the same
    spot twice.
+
+   Each point is the average of the readings from the last second, not
+   the single reading at the moment of the tap, so aim and pause a beat
+   before tapping. The HUD shows the spread of that second underneath the
+   elevation; it turns amber past 3 degrees, which means the compass is
+   being pulled around by something and the reading is not worth
+   recording where you are standing.
 5. Tap **Download CSV** when done -- gives you
    `azimuth_deg,elevation_deg,timestamp,is_calibration,source` rows you
    can open in a spreadsheet or feed into other tools.
