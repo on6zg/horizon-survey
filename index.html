@@ -133,6 +133,9 @@
       <button id="downloadJsonBtn">Download JSON</button>
       <button id="clearBtn">Clear</button>
     </div>
+    <div class="actions">
+      <button id="debugBtn" style="background:#555;">Send debug&hellip;</button>
+    </div>
     <div id="count">0 points</div>
     <button id="toggleListBtn">Show recorded points list &darr;</button>
     <div id="list" class="collapsed">
@@ -155,6 +158,12 @@
 import {
   orientationToAzEl, circularMeanDeg, circularSpreadDeg, median, recentSamples, toHorizonProfile,
 } from "./geometry.js?v=7";
+import { buildZip, debugBundle, pointsToCsv } from "./debug.js?v=1";
+
+// Where "Send debug" offers to mail the bundle. Left empty on purpose: this
+// is the maintainer's address to set, not something to bake in. Empty means
+// the button downloads the file and says to attach it to an issue.
+const DEBUG_MAIL_TO = "";
 
 (function () {
   "use strict";
@@ -172,6 +181,14 @@ import {
   let points = [];
   let currentAz = null, currentEl = null;
   let samples = []; // {t, az, el} for the last SAMPLE_WINDOW_MS
+  // The raw events as the browser delivered them, most recent last. This is
+  // the only record of what the sensor actually said rather than what the
+  // maths made of it, and it is the difference between a compass that is
+  // biased and one that is being disturbed. Kept short: a bundle is meant to
+  // be attachable.
+  const RAW_KEEP = 120;
+  let rawSamples = [];
+  let eventCounts = { total: 0, absolute: 0, with_compass_heading: 0, unusable: 0 };
   let zoomLevel = 1.0;
   // hwZoomTrack is the live video track; hwZoomRange is the {min,max,step}
   // object from MediaTrackCapabilities.zoom, not the capabilities object
@@ -271,8 +288,9 @@ import {
     download(csv, "text/csv", "horizon_survey", "csv");
   });
 
-  function download(text, mime, base, ext) {
-    const blob = new Blob([text], { type: mime });
+  // `data` is a string or a Uint8Array; Blob takes either.
+  function download(data, mime, base, ext) {
+    const blob = new Blob([data], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -295,6 +313,43 @@ import {
 
   function setStatus(msg) { $("status").textContent = msg || ""; }
 
+  function round2(v) {
+    return typeof v === "number" && !Number.isNaN(v) ? Math.round(v * 100) / 100 : null;
+  }
+
+  // A browser cannot send mail with an attachment, so this collects
+  // everything into one file to attach by hand. The raw orientation events
+  // are the reason it exists: nothing else records what the sensor said, as
+  // opposed to what the maths made of it.
+  $("debugBtn").addEventListener("click", () => {
+    const enc = new TextEncoder();
+    const bundle = debugBundle({
+      page: "survey",
+      points,
+      device: {
+        user_agent: navigator.userAgent,
+        screen: screen.width + "x" + screen.height,
+        device_pixel_ratio: window.devicePixelRatio,
+        screen_orientation: screen.orientation ? screen.orientation.type : null,
+      },
+      orientationSamples: rawSamples,
+      notes: {
+        event_counts: eventCounts,
+        have_absolute_heading: haveAbsolute,
+        hardware_zoom: hwZoomRange ? { ...hwZoomRange, current: zoomLevel } : null,
+        wake_lock_supported: "wakeLock" in navigator,
+        sample_window_ms: SAMPLE_WINDOW_MS,
+        current_spread_deg: samples.length >= 4
+          ? round2(circularSpreadDeg(samples.map((s) => s.az))) : null,
+      },
+    });
+    const files = [{ name: "debug.json", data: enc.encode(JSON.stringify(bundle, null, 2)) }];
+    if (points.length) files.push({ name: "points.csv", data: enc.encode(pointsToCsv(points)) });
+    download(buildZip(files), "application/zip", "horizon_debug", "zip");
+    setStatus("debug bundle downloaded -- "
+      + (DEBUG_MAIL_TO ? "mail it to " + DEBUG_MAIL_TO : "attach it to the issue you are reporting"));
+  });
+
   // ---- Orientation (compass heading + tilt) ----
   // The az/el math lives in geometry.js so it can be unit-tested. See
   // cameraAzEl() there for why both angles come out of the full rotation
@@ -302,8 +357,21 @@ import {
   let haveAbsolute = false;
 
   function handleOrientation(event) {
+    eventCounts.total++;
+    if (event.absolute === true) eventCounts.absolute++;
+    if (typeof event.webkitCompassHeading === "number") eventCounts.with_compass_heading++;
+    rawSamples.push({
+      t: Date.now(), type: event.type,
+      alpha: round2(event.alpha), beta: round2(event.beta), gamma: round2(event.gamma),
+      absolute: event.absolute === true,
+      compass_heading: round2(event.webkitCompassHeading),
+      compass_accuracy: round2(event.webkitCompassAccuracy),
+    });
+    if (rawSamples.length > RAW_KEEP) rawSamples.shift();
+
     const reading = orientationToAzEl(event);
     if (!reading) {
+      eventCounts.unusable++;
       // Without a north-referenced heading the azimuth would be an
       // arbitrary offset that changes on every page load, so show nothing
       // rather than a number that looks measured but isn't.
