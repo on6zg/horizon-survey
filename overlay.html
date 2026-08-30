@@ -62,6 +62,7 @@
   </label>
   <button id="recalBtn">Manual calibration</button>
   <button id="addPointModeBtn" disabled>Add point from photo: OFF</button>
+  <button id="deleteSelectedBtn" disabled style="background:#a33;">Delete selected point</button>
   <button id="downloadCsvBtn">Download CSV</button>
   <span id="calStatus">no photo loaded</span>
 </div>
@@ -426,6 +427,18 @@
     $("addPointModeBtn").style.background = addPointMode ? "#c98a12" : "";
   });
 
+  $("deleteSelectedBtn").addEventListener("click", () => {
+    if (!selectedPoint) return;
+    const i = points.indexOf(selectedPoint.p);
+    if (i === -1) return;
+    points.splice(i, 1);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(points));
+    selectedPoint = null;
+    $("deleteSelectedBtn").disabled = true;
+    updateMarkedCalUI();
+    draw();
+  });
+
   canvas.addEventListener("click", (e) => {
     if (!img) return;
     const rect = canvas.getBoundingClientRect();
@@ -449,6 +462,7 @@
       lastClickPos = { x, y }; // debug marker -- shows exactly where the click landed
       const hit = nearestPlacedPoint(x, y);
       selectedPoint = hit; // null (clicked empty space) clears the label
+      $("deleteSelectedBtn").disabled = !hit;
       draw();
       return;
     }
