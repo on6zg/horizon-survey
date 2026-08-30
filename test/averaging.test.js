@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { circularMeanDeg, circularSpreadDeg, median } from "../geometry.js";
+import { circularMeanDeg, circularSpreadDeg, median, recentSamples } from "../geometry.js";
 
 const close = (actual, expected, tol, what) =>
   assert.ok(Math.abs(actual - expected) <= tol, `${what}: got ${actual}, expected ~${expected}`);
@@ -52,4 +52,27 @@ test("median does not disturb the caller's array", () => {
   const xs = [3, 1, 2];
   median(xs);
   assert.deepEqual(xs, [3, 1, 2]);
+});
+
+test("samples outside the window are dropped", () => {
+  const now = 10_000;
+  const kept = recentSamples([{ t: 8_500 }, { t: 9_400 }, { t: 9_900 }], now, 1000);
+  assert.deepEqual(kept.map((s) => s.t), [9_400, 9_900]);
+});
+
+test("a buffer nobody has touched for a while empties instead of going stale", () => {
+  // The failure this exists for: orientation events stop arriving (tab
+  // backgrounded and resumed, sensor hiccup) while the page keeps running.
+  // Trimming only on receipt would leave a buffer full of readings from
+  // wherever the phone was pointing minutes ago, and Record would average
+  // those instead of refusing.
+  const old = [{ t: 1_000 }, { t: 1_200 }];
+  assert.deepEqual(recentSamples(old, 60_000, 1000), []);
+  assert.equal(circularMeanDeg([]), null, "an empty buffer must refuse, not average");
+});
+
+test("recentSamples leaves the caller's array alone", () => {
+  const xs = [{ t: 1 }, { t: 9_999 }];
+  recentSamples(xs, 10_000, 1000);
+  assert.equal(xs.length, 2);
 });
