@@ -48,7 +48,9 @@
   not assumed.
   On a different device than the one you recorded points on (e.g.
   viewing here on a PC), load the CSV you downloaded from the survey
-  page first.
+  page first. After calibrating, click any green marker to see its exact
+  azimuth/elevation -- useful for checking whether a spike in the line is
+  a real obstruction or a bad reading.
 </p>
 
 <div id="controls">
@@ -103,6 +105,7 @@
   // pendingCalTargets holds those, so clicks only need to supply pixels.
   // null means manual mode (prompt for az/el on each click instead).
   let pendingCalTargets = null;
+  let selectedPoint = null; // {p, x, y} of the point last clicked, for the label popup
 
   function loadPoints() {
     try {
@@ -155,6 +158,7 @@
         return;
       }
       points = parsed;
+      selectedPoint = null;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(points));
       $("noPoints").style.display = "none";
       updateMarkedCalUI();
@@ -230,12 +234,44 @@
     });
     ctx.stroke();
 
-    ctx.fillStyle = "#0f0";
     for (const pt of placed) {
+      ctx.fillStyle = (selectedPoint && pt.p === selectedPoint.p) ? "#ff0" : "#0f0";
       ctx.beginPath();
-      ctx.arc(pt.x, pt.y, 5, 0, Math.PI * 2);
+      ctx.arc(pt.x, pt.y, (selectedPoint && pt.p === selectedPoint.p) ? 7 : 5, 0, Math.PI * 2);
       ctx.fill();
     }
+
+    if (selectedPoint) {
+      const label = selectedPoint.p.az.toFixed(1) + "°  " + selectedPoint.p.el.toFixed(1) + "°"
+        + (selectedPoint.p.cal ? "  ★cal" : "");
+      ctx.font = "bold 20px system-ui, sans-serif";
+      const textW = ctx.measureText(label).width;
+      const lx = Math.min(Math.max(selectedPoint.x - textW / 2 - 8, 4), canvas.width - textW - 12);
+      const ly = Math.max(selectedPoint.y - 34, 4);
+      ctx.fillStyle = "rgba(0,0,0,0.8)";
+      ctx.fillRect(lx, ly, textW + 16, 28);
+      ctx.strokeStyle = "#ff0";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(lx, ly, textW + 16, 28);
+      ctx.fillStyle = "#ff0";
+      ctx.fillText(label, lx + 8, ly + 20);
+    }
+  }
+
+  // Find the placed point nearest a click, within a reasonable pixel radius.
+  function nearestPlacedPoint(x, y) {
+    if (!img || !cal || !points.length) return null;
+    const margin = canvas.width * 0.10;
+    const placed = points
+      .map((p) => ({ p, x: azToX(p.az), y: elToY(p.el) }))
+      .filter((pt) => pt.x >= -margin && pt.x <= canvas.width + margin);
+    let best = null, bestDist = Infinity;
+    for (const pt of placed) {
+      const d = Math.hypot(pt.x - x, pt.y - y);
+      if (d < bestDist) { bestDist = d; best = pt; }
+    }
+    const maxPixelRadius = Math.max(30, canvas.width * 0.02);
+    return bestDist <= maxPixelRadius ? best : null;
   }
 
   $("fileInput").addEventListener("change", (e) => {
@@ -300,12 +336,20 @@
   }
 
   canvas.addEventListener("click", (e) => {
-    if (!awaitingCalClick || !img) return;
+    if (!img) return;
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
     const x = (e.clientX - rect.left) * scaleX;
     const y = (e.clientY - rect.top) * scaleY;
+
+    if (!awaitingCalClick) {
+      // Not calibrating -- clicking a marker shows its az/el label instead.
+      const hit = nearestPlacedPoint(x, y);
+      selectedPoint = hit; // null (clicked empty space) clears the label
+      draw();
+      return;
+    }
 
     if (pendingCalTargets) {
       // az/el already known from the selected marked points -- no prompt.
