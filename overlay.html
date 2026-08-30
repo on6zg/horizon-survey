@@ -61,8 +61,17 @@
     <input type="file" id="fileInput" accept="image/*">
   </label>
   <button id="recalBtn">Manual calibration</button>
+  <button id="addPointModeBtn" disabled>Add point from photo: OFF</button>
+  <button id="downloadCsvBtn">Download CSV</button>
   <span id="calStatus">no photo loaded</span>
 </div>
+<p style="font-size:0.75rem; color:#999; margin:-4px 0 8px;">
+  With "Add point from photo" on, clicking anywhere on the (calibrated)
+  photo computes that spot's azimuth/elevation from the photo alone --
+  no phone/sensor needed -- and adds it as a new point, marked
+  <span style="color:#7cf;">source=photo</span> in the CSV so it stays
+  distinguishable from points you actually measured with the sensor.
+</p>
 
 <div id="markedCalBox" style="display:none; padding:10px; background:#16161c; border-radius:8px; margin:0 0 10px; font-size:0.85rem;">
   <div style="color:#c98a12; margin-bottom:6px;">&#9733; Use marked calibration points (no typing needed):</div>
@@ -107,6 +116,7 @@
   let pendingCalTargets = null;
   let selectedPoint = null; // {p, x, y} of the point last clicked, for the label popup
   let lastClickPos = null; // {x, y} raw click position -- temporary debug marker
+  let addPointMode = false;
 
   function loadPoints() {
     try {
@@ -143,7 +153,8 @@
       const el = parseFloat(cols[1]);
       if (isNaN(az) || isNaN(el)) continue; // skips the header row too
       const cal = cols[3] !== undefined && cols[3].trim() === "1";
-      parsed.push({ az, el, t: cols[2] || "", cal });
+      const source = cols[4] !== undefined && cols[4].trim() ? cols[4].trim() : "sensor";
+      parsed.push({ az, el, t: cols[2] || "", cal, source });
     }
     return parsed;
   }
@@ -166,6 +177,24 @@
       draw();
     };
     reader.readAsText(file);
+  });
+
+  $("downloadCsvBtn").addEventListener("click", () => {
+    if (!points.length) { setStatus("no points to export", true); return; }
+    const sorted = [...points].sort((a, b) => a.az - b.az);
+    let csv = "azimuth_deg,elevation_deg,timestamp,is_calibration,source\n";
+    for (const p of sorted) {
+      csv += `${p.az.toFixed(2)},${p.el.toFixed(2)},${p.t || ""},${p.cal ? 1 : 0},${p.source || "sensor"}\n`;
+    }
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "horizon_survey_" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   });
 
   function loadCalibration() {
@@ -204,6 +233,18 @@
     return (el - cal.eOffset) / cal.eScale;
   }
 
+  // Inverse of the above -- pixel position to real-world az/el, for
+  // "add point from photo".
+  function xToAz(x) {
+    let az = (cal.aScale * x + cal.aOffset) % 360;
+    if (az < 0) az += 360;
+    return az;
+  }
+
+  function yToEl(y) {
+    return cal.eScale * y + cal.eOffset;
+  }
+
   function draw() {
     if (!img) return;
     canvas.width = img.naturalWidth;
@@ -227,6 +268,28 @@
       return;
     }
 
+    // Flat dashed extension from the first/last real point out to the
+    // photo edges -- there's no data out there, so this is clearly marked
+    // as an approximation (dashed, not solid) rather than implying a
+    // measurement all the way to the edge.
+    ctx.setLineDash([8, 8]);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(0,255,0,0.5)";
+    if (placed[0].x > 0) {
+      ctx.beginPath();
+      ctx.moveTo(0, placed[0].y);
+      ctx.lineTo(placed[0].x, placed[0].y);
+      ctx.stroke();
+    }
+    const lastPt = placed[placed.length - 1];
+    if (lastPt.x < canvas.width) {
+      ctx.beginPath();
+      ctx.moveTo(lastPt.x, lastPt.y);
+      ctx.lineTo(canvas.width, lastPt.y);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
     ctx.lineWidth = 3;
     ctx.strokeStyle = "rgba(0,255,0,0.85)";
     ctx.beginPath();
@@ -236,9 +299,12 @@
     ctx.stroke();
 
     for (const pt of placed) {
-      ctx.fillStyle = (selectedPoint && pt.p === selectedPoint.p) ? "#ff0" : "#0f0";
+      const isSelected = selectedPoint && pt.p === selectedPoint.p;
+      // Blue = computed from the photo (no sensor measurement behind it);
+      // green = actually measured with the phone's compass/tilt.
+      ctx.fillStyle = isSelected ? "#ff0" : (pt.p.source === "photo" ? "#4af" : "#0f0");
       ctx.beginPath();
-      ctx.arc(pt.x, pt.y, (selectedPoint && pt.p === selectedPoint.p) ? 7 : 5, 0, Math.PI * 2);
+      ctx.arc(pt.x, pt.y, isSelected ? 7 : 5, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -260,7 +326,8 @@
 
     if (selectedPoint) {
       const label = selectedPoint.p.az.toFixed(1) + "°  " + selectedPoint.p.el.toFixed(1) + "°"
-        + (selectedPoint.p.cal ? "  ★cal" : "");
+        + (selectedPoint.p.cal ? "  ★cal" : "")
+        + (selectedPoint.p.source === "photo" ? "  (from photo)" : "");
       ctx.font = "bold 20px system-ui, sans-serif";
       const textW = ctx.measureText(label).width;
       const lx = Math.min(Math.max(selectedPoint.x - textW / 2 - 8, 4), canvas.width - textW - 12);
@@ -349,8 +416,15 @@
     saveCalibration();
     awaitingCalClick = false;
     setStatus("calibrated");
+    $("addPointModeBtn").disabled = false;
     draw();
   }
+
+  $("addPointModeBtn").addEventListener("click", () => {
+    addPointMode = !addPointMode;
+    $("addPointModeBtn").textContent = "Add point from photo: " + (addPointMode ? "ON" : "OFF");
+    $("addPointModeBtn").style.background = addPointMode ? "#c98a12" : "";
+  });
 
   canvas.addEventListener("click", (e) => {
     if (!img) return;
@@ -359,6 +433,16 @@
     const scaleY = canvas.height / rect.height;
     const x = (e.clientX - rect.left) * scaleX;
     const y = (e.clientY - rect.top) * scaleY;
+
+    if (addPointMode && !awaitingCalClick) {
+      if (!cal) { setStatus("calibrate first", true); return; }
+      const az = xToAz(x), el = yToEl(y);
+      points.push({ az, el, t: new Date().toISOString(), cal: false, source: "photo" });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(points));
+      setStatus("added point: " + az.toFixed(1) + "°/" + el.toFixed(1) + "° -- keep clicking, or turn off Add-point mode when done");
+      draw();
+      return;
+    }
 
     if (!awaitingCalClick) {
       // Not calibrating -- clicking a marker shows its az/el label instead.

@@ -233,8 +233,8 @@
 
   $("downloadBtn").addEventListener("click", () => {
     const sorted = [...points].sort((a, b) => a.az - b.az);
-    let csv = "azimuth_deg,elevation_deg,timestamp,is_calibration\n";
-    for (const p of sorted) csv += `${p.az.toFixed(2)},${p.el.toFixed(2)},${p.t},${p.cal ? 1 : 0}\n`;
+    let csv = "azimuth_deg,elevation_deg,timestamp,is_calibration,source\n";
+    for (const p of sorted) csv += `${p.az.toFixed(2)},${p.el.toFixed(2)},${p.t},${p.cal ? 1 : 0},sensor\n`;
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
