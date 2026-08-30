@@ -145,7 +145,9 @@
   </div>
 </div>
 
-<script>
+<script type="module">
+import { orientationToAzEl } from "./geometry.js";
+
 (function () {
   "use strict";
 
@@ -252,29 +254,23 @@
   function setStatus(msg) { $("status").textContent = msg || ""; }
 
   // ---- Orientation (compass heading + tilt) ----
-  // beta: front-back tilt, 90deg = phone held upright/vertical (camera aimed
-  // level at the horizon), 180deg = camera aimed straight up, 0deg = camera
-  // aimed straight down -- so elevation = beta - 90. This assumes the phone
-  // is held reasonably upright (not rolled sideways); acceptable for a
-  // walk-around survey where sub-degree precision isn't meaningful anyway.
-  //
-  // alpha: compass heading. Chrome's 'deviceorientationabsolute' event (or
-  // deviceorientation with event.absolute===true) gives alpha referenced to
-  // true/magnetic north; compass bearing = (360 - alpha) % 360 is the usual
-  // correction. VERIFY ON YOUR OWN DEVICE before trusting readings -- compass
-  // sensor behavior varies by phone, and this hasn't been tested on real
-  // hardware yet. If azimuth reads backwards or offset, adjust the formula
-  // below (search HEADING_CORRECTION).
+  // The az/el math lives in geometry.js so it can be unit-tested. See
+  // cameraAzEl() there for why both angles come out of the full rotation
+  // matrix instead of being read off beta and alpha directly.
+  let haveAbsolute = false;
+
   function handleOrientation(event) {
-    if (event.beta === null || event.alpha === null) {
-      setStatus("no orientation data from sensor");
+    const reading = orientationToAzEl(event);
+    if (!reading) {
+      // Without a north-referenced heading the azimuth would be an
+      // arbitrary offset that changes on every page load, so show nothing
+      // rather than a number that looks measured but isn't.
+      if (!haveAbsolute) setStatus("no compass-referenced heading from this device");
       return;
     }
-    currentEl = event.beta - 90;
-    // HEADING_CORRECTION: flip/adjust here if azimuth reads wrong on your phone
-    let heading = (360 - event.alpha) % 360;
-    if (heading < 0) heading += 360;
-    currentAz = heading;
+    if (!haveAbsolute) { haveAbsolute = true; setStatus(""); }
+    currentAz = reading.az;
+    currentEl = reading.el;
     $("azVal").innerHTML = currentAz.toFixed(1) + "&deg;";
     $("elVal").innerHTML = currentEl.toFixed(1) + "&deg;";
   }
@@ -288,9 +284,13 @@
       const perm = await DeviceOrientationEvent.requestPermission();
       if (perm !== "granted") throw new Error("orientation sensor permission denied");
     }
-    const absoluteHandler = (e) => { if (e.absolute || e.webkitCompassHeading !== undefined) handleOrientation(e); };
+    // No single event covers every platform: Chrome/Android delivers the
+    // absolute frame on 'deviceorientationabsolute', iOS Safari delivers
+    // webkitCompassHeading on plain 'deviceorientation'. Both are
+    // registered and orientationToAzEl() drops whichever one arrives
+    // without an absolute heading.
     window.addEventListener("deviceorientationabsolute", handleOrientation, true);
-    window.addEventListener("deviceorientation", absoluteHandler, true);
+    window.addEventListener("deviceorientation", handleOrientation, true);
   }
 
   // ---- Camera ----
