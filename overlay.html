@@ -141,7 +141,7 @@ import { fitCalibration, azToX, xToAz, elToY, yToEl } from "./geometry.js?v=2";
   // that file, not to this browser's own survey, and must not be written
   // back over it.
   let pointsAreImported = false;
-  let imageKey = null;  // {name, w, h} of the loaded photo
+  let imageKey = null;  // identity of the loaded photo, see sameImage()
   let storedCal = null; // calibration read from storage, applied only if its image matches
 
   function persistPoints() {
@@ -261,8 +261,16 @@ import { fitCalibration, azToX, xToAz, elToY, yToEl } from "./geometry.js?v=2";
     localStorage.setItem(CAL_KEY, JSON.stringify({ ...cal, image: imageKey }));
   }
 
+  // Name and pixel dimensions alone would call two different photos the
+  // same one whenever they happen to share both, which is exactly what
+  // happens with a phone's own numbering (PANO_0001.jpg) across two
+  // sessions. Size and modification time come free from the File object
+  // and make that collision effectively impossible without reading the
+  // pixels.
   function sameImage(a, b) {
-    return !!a && !!b && a.name === b.name && a.w === b.w && a.h === b.h;
+    return !!a && !!b &&
+      a.name === b.name && a.w === b.w && a.h === b.h &&
+      a.size === b.size && a.modified === b.modified;
   }
 
   function setStatus(msg, pending) {
@@ -374,7 +382,10 @@ import { fitCalibration, azToX, xToAz, elToY, yToEl } from "./geometry.js?v=2";
     const url = URL.createObjectURL(file);
     img = new Image();
     img.onload = () => {
-      imageKey = { name: file.name, w: img.naturalWidth, h: img.naturalHeight };
+      imageKey = {
+        name: file.name, w: img.naturalWidth, h: img.naturalHeight,
+        size: file.size, modified: file.lastModified,
+      };
       // A calibration is a pixel-to-degree scale for one specific photo.
       // Reusing it for another one draws a horizon line that looks
       // entirely plausible and is wrong, so it is only restored when the
