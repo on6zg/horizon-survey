@@ -263,6 +263,19 @@ export function circularSpreadDeg(anglesDeg) {
 }
 
 /**
+ * The samples inside the trailing window ending at `now`, as a new array.
+ *
+ * Has to be applied when the buffer is read, not only when it is appended
+ * to. If orientation events stop arriving while the page keeps running, a
+ * buffer trimmed only on receipt still holds whatever the phone was
+ * pointing at before they stopped, and averaging that is worse than
+ * refusing: it looks like a measurement.
+ */
+export function recentSamples(samples, now, windowMs) {
+  return samples.filter((s) => now - s.t <= windowMs);
+}
+
+/**
  * Middle value of a set, leaving the caller's array alone. Null when empty.
  *
  * Used for elevation rather than a mean, because one sample taken as the

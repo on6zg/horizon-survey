@@ -152,7 +152,9 @@
 <script type="module">
 // ?v= is a cache buster: bump it in the same commit as any geometry.js
 // change, so a browser holding an old copy cannot pair it with a new page.
-import { orientationToAzEl, circularMeanDeg, circularSpreadDeg, median, toHorizonProfile } from "./geometry.js?v=4";
+import {
+  orientationToAzEl, circularMeanDeg, circularSpreadDeg, median, recentSamples, toHorizonProfile,
+} from "./geometry.js?v=4";
 
 (function () {
   "use strict";
@@ -218,6 +220,11 @@ import { orientationToAzEl, circularMeanDeg, circularSpreadDeg, median, toHorizo
   function recordPoint(isCal) {
     const now = Date.now();
     if (now - lastRecordAt < RECORD_COOLDOWN_MS) return; // swallow the bounce/double-tap
+    // Trimmed here as well as on receipt: if orientation events have
+    // stopped arriving, the buffer still holds the direction the phone was
+    // pointing before they stopped, and averaging that would look like a
+    // measurement instead of refusing.
+    samples = recentSamples(samples, now, SAMPLE_WINDOW_MS);
     const az = circularMeanDeg(samples.map((s) => s.az));
     const el = median(samples.map((s) => s.el));
     if (az === null || el === null) {
@@ -305,8 +312,7 @@ import { orientationToAzEl, circularMeanDeg, circularSpreadDeg, median, toHorizo
     currentEl = reading.el;
 
     const now = Date.now();
-    samples.push({ t: now, az: reading.az, el: reading.el });
-    while (samples.length && now - samples[0].t > SAMPLE_WINDOW_MS) samples.shift();
+    samples = recentSamples([...samples, { t: now, az: reading.az, el: reading.el }], now, SAMPLE_WINDOW_MS);
 
     $("azVal").innerHTML = currentAz.toFixed(1) + "&deg;";
     $("elVal").innerHTML = currentEl.toFixed(1) + "&deg;";
