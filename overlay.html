@@ -122,7 +122,6 @@
   // null means manual mode (prompt for az/el on each click instead).
   let pendingCalTargets = null;
   let selectedPoint = null; // {p, x, y} of the point last clicked, for the label popup
-  let lastClickPos = null; // {x, y} raw click position -- temporary debug marker
   let addPointMode = false;
 
   function loadPoints() {
@@ -206,10 +205,9 @@
 
   $("downloadImgBtn").addEventListener("click", () => {
     if (!img) { setStatus("load a photo first", true); return; }
-    // Render a clean version (no debug crosshair, no yellow selection
-    // highlight) for the exported file, then restore the interactive view.
-    const savedClick = lastClickPos, savedSel = selectedPoint;
-    lastClickPos = null;
+    // Render without the yellow selection highlight for the exported file,
+    // then restore the interactive view.
+    const savedSel = selectedPoint;
     selectedPoint = null;
     draw();
     canvas.toBlob((blob) => {
@@ -221,7 +219,6 @@
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      lastClickPos = savedClick;
       selectedPoint = savedSel;
       draw();
     }, "image/png");
@@ -336,22 +333,6 @@
       ctx.beginPath();
       ctx.arc(pt.x, pt.y, isSelected ? 7 : 5, 0, Math.PI * 2);
       ctx.fill();
-    }
-
-    if (lastClickPos) {
-      // Debug aid: exactly where the last click was computed to land,
-      // regardless of whether it hit a marker. If this red X doesn't
-      // appear where you actually tapped, it's a coordinate scaling bug,
-      // not a "click more precisely" problem.
-      ctx.strokeStyle = "#f00";
-      ctx.lineWidth = 3;
-      const s = 12;
-      ctx.beginPath();
-      ctx.moveTo(lastClickPos.x - s, lastClickPos.y - s);
-      ctx.lineTo(lastClickPos.x + s, lastClickPos.y + s);
-      ctx.moveTo(lastClickPos.x + s, lastClickPos.y - s);
-      ctx.lineTo(lastClickPos.x - s, lastClickPos.y + s);
-      ctx.stroke();
     }
 
     if (selectedPoint) {
@@ -488,7 +469,6 @@
 
     if (!awaitingCalClick) {
       // Not calibrating -- clicking a marker shows its az/el label instead.
-      lastClickPos = { x, y }; // debug marker -- shows exactly where the click landed
       const hit = nearestPlacedPoint(x, y);
       selectedPoint = hit; // null (clicked empty space) clears the label
       $("deleteSelectedBtn").disabled = !hit;
