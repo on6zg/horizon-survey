@@ -90,3 +90,38 @@ test("elevation grows upward, so the vertical scale is negative", () => {
   assert.ok(cal.eScale < 0, `eScale should be negative, got ${cal.eScale}`);
   assert.ok(yToEl(cal, 1000) > yToEl(cal, 2000), "higher in the photo must mean higher elevation");
 });
+
+test("two points with the same azimuth are refused, not silently scaled to zero", () => {
+  // A typing slip during manual calibration. aScale would be 0, azToX()
+  // would divide by it, every marker would fail the on-canvas bounds check
+  // and the whole line would vanish while the status still read
+  // "calibrated".
+  assert.throws(
+    () => fitCalibration(
+      { x: 100, y: 500, az: 145, el: 2 },
+      { x: 4000, y: 2500, az: 145, el: 20 },
+      PANO,
+    ),
+    /same azimuth/i,
+  );
+});
+
+test("an independent fit refuses two identical elevations too", () => {
+  const cal = fitCalibration(
+    { x: 100, y: 500, az: 100, el: 3 },
+    { x: 700, y: 2500, az: 136, el: 3 },
+    { ...PANO, verticalScale: "independent" },
+  );
+  assert.equal(cal.verticalScale, "isotropic");
+  assert.match(cal.warning, /same elevation/i);
+  assert.ok(Number.isFinite(cal.eScale) && cal.eScale !== 0, `eScale was ${cal.eScale}`);
+  assert.ok(Number.isFinite(elToY(cal, 10)), "elToY must not divide by zero");
+});
+
+test("every fit that is returned produces finite pixels", () => {
+  for (const opts of [PANO, { ...PANO, verticalScale: "independent" }]) {
+    const cal = fitCalibration(...NEAR_HORIZON, opts);
+    assert.ok(Number.isFinite(azToX(cal, 123, PANO.imageWidth)), "azToX finite");
+    assert.ok(Number.isFinite(elToY(cal, 5)), "elToY finite");
+  }
+});
