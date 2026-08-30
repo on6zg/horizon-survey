@@ -106,6 +106,7 @@
   // null means manual mode (prompt for az/el on each click instead).
   let pendingCalTargets = null;
   let selectedPoint = null; // {p, x, y} of the point last clicked, for the label popup
+  let lastClickPos = null; // {x, y} raw click position -- temporary debug marker
 
   function loadPoints() {
     try {
@@ -241,6 +242,22 @@
       ctx.fill();
     }
 
+    if (lastClickPos) {
+      // Debug aid: exactly where the last click was computed to land,
+      // regardless of whether it hit a marker. If this red X doesn't
+      // appear where you actually tapped, it's a coordinate scaling bug,
+      // not a "click more precisely" problem.
+      ctx.strokeStyle = "#f00";
+      ctx.lineWidth = 3;
+      const s = 12;
+      ctx.beginPath();
+      ctx.moveTo(lastClickPos.x - s, lastClickPos.y - s);
+      ctx.lineTo(lastClickPos.x + s, lastClickPos.y + s);
+      ctx.moveTo(lastClickPos.x + s, lastClickPos.y - s);
+      ctx.lineTo(lastClickPos.x - s, lastClickPos.y + s);
+      ctx.stroke();
+    }
+
     if (selectedPoint) {
       const label = selectedPoint.p.az.toFixed(1) + "°  " + selectedPoint.p.el.toFixed(1) + "°"
         + (selectedPoint.p.cal ? "  ★cal" : "");
@@ -270,7 +287,7 @@
       const d = Math.hypot(pt.x - x, pt.y - y);
       if (d < bestDist) { bestDist = d; best = pt; }
     }
-    const maxPixelRadius = Math.max(30, canvas.width * 0.02);
+    const maxPixelRadius = Math.max(60, canvas.width * 0.03);
     return bestDist <= maxPixelRadius ? best : null;
   }
 
@@ -345,6 +362,7 @@
 
     if (!awaitingCalClick) {
       // Not calibrating -- clicking a marker shows its az/el label instead.
+      lastClickPos = { x, y }; // debug marker -- shows exactly where the click landed
       const hit = nearestPlacedPoint(x, y);
       selectedPoint = hit; // null (clicked empty space) clears the label
       draw();
