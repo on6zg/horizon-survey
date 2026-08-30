@@ -37,6 +37,32 @@ compass) and confirm the on-screen azimuth reading matches, adjusting the
 formula if it's backwards or offset. Same idea for elevation -- hold the
 phone level (aimed at the horizon) and confirm it reads ~0 degrees.
 
+## Panorama overlay (`overlay.html`)
+
+Upload a 360&deg; equirectangular panorama photo (e.g. your phone's Photo
+Sphere mode) and it draws your recorded horizon line right on top, using
+the same points saved by the survey page (`localStorage`, same browser/
+device). A panorama photo has no built-in compass reference, so there's a
+one-time calibration step: click any point in the photo whose real-world
+bearing you know (a landmark, a building corner), enter that bearing, and
+everything lines up from there. Recalibrate any time from the button if a
+new photo is loaded.
+
+**Shooting the panorama**: don't stand right against the antenna mast --
+most panorama/Photo-Sphere apps need a clear, unobstructed pivot to
+stitch correctly, and a large nearby object in the way will break the
+capture. Stand a meter or two off to the side instead; over that short a
+distance, anything more than a few meters away barely shifts in apparent
+bearing, so it won't meaningfully throw off the alignment. Whatever part
+of the photo the mast/antenna itself still blocks is fine to leave as-is
+-- the recorded horizon-line data comes from your walk-around survey, not
+from the photo, so it stays accurate there regardless of what the photo
+shows in that slice.
+
+Assumes a standard full-sphere equirectangular image (360&deg; horizontal,
+180&deg; vertical) -- most phone panorama-sphere output matches this, but
+hasn't been tested against a real photo yet.
+
 ## Camera zoom
 
 Uses real hardware zoom if the browser/device exposes it (`MediaTrackCapabilities.zoom`),

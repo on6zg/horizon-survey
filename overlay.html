@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Horizon Survey - Panorama Overlay</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #0a0a0e; color: #eee; font-family: system-ui, sans-serif;
+    padding: 10px;
+  }
+  h1 { font-size: 1.1rem; margin: 4px 0 10px; }
+  a.back { color: #9ad; font-size: 0.85rem; }
+  #controls {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    margin: 10px 0; padding: 10px; background: #16161c; border-radius: 8px;
+  }
+  #controls button, #controls input[type=file] {
+    padding: 8px 12px; border-radius: 6px; border: none;
+    background: #2e7d32; color: #fff; font-size: 0.85rem;
+  }
+  #calStatus { font-size: 0.8rem; color: #aaa; flex-basis: 100%; }
+  #calStatus.pending { color: #fc6; }
+  #wrap {
+    position: relative; width: 100%; overflow-x: auto; background: #000;
+    border-radius: 8px;
+  }
+  #wrap canvas { display: block; max-width: none; }
+  #hint {
+    font-size: 0.8rem; color: #999; margin: 8px 0; line-height: 1.4;
+  }
+  #noPoints { color: #f88; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+
+<a class="back" href="index.html">&larr; Back to survey</a>
+<h1>Panorama Overlay</h1>
+<p id="hint">
+  Upload a 360&deg; equirectangular panorama photo (e.g. your phone's Photo
+  Sphere mode) taken near the antenna. Then click one point in the photo
+  whose real-world compass bearing you know (a landmark, corner of a
+  building, etc.) to calibrate -- the photo has no built-in compass
+  reference, so this line-up step is required once per photo.
+</p>
+
+<div id="controls">
+  <input type="file" id="fileInput" accept="image/*">
+  <button id="recalBtn">Recalibrate</button>
+  <span id="calStatus">no photo loaded</span>
+</div>
+
+<p id="noPoints" style="display:none;">
+  No recorded points found in this browser -- record some on the survey
+  page first, or they were cleared/this is a different browser/device.
+</p>
+
+<div id="wrap">
+  <canvas id="canvas"></canvas>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  const STORAGE_KEY = "horizonSurveyPoints";
+  const CAL_KEY = "horizonSurveyCalibration"; // { pixelFrac, knownAz }
+
+  const $ = (id) => document.getElementById(id);
+  const canvas = $("canvas");
+  const ctx = canvas.getContext("2d");
+
+  let img = null;
+  let points = [];
+  let calOffsetDeg = 0; // added to raw pixel-derived azimuth to align to true compass bearing
+  let awaitingCalClick = false;
+
+  function loadPoints() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      points = raw ? JSON.parse(raw) : [];
+    } catch (e) { points = []; }
+    $("noPoints").style.display = points.length ? "none" : "block";
+  }
+
+  function loadCalibration() {
+    try {
+      const raw = localStorage.getItem(CAL_KEY);
+      if (raw) {
+        const cal = JSON.parse(raw);
+        calOffsetDeg = cal.offset || 0;
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  function saveCalibration() {
+    localStorage.setItem(CAL_KEY, JSON.stringify({ offset: calOffsetDeg }));
+  }
+
+  function setStatus(msg, pending) {
+    const el = $("calStatus");
+    el.textContent = msg;
+    el.className = pending ? "pending" : "";
+  }
+
+  function draw() {
+    if (!img) return;
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    ctx.drawImage(img, 0, 0);
+
+    if (!points.length) return;
+
+    // az -> x: standard equirectangular, x=0 is azimuth 0 (north) at the
+    // photo's left edge, wrapping at 360. calOffsetDeg shifts this to
+    // match wherever the photo actually starts.
+    // el -> y: assumes full 180deg vertical FOV, y=0 is straight up
+    // (el=+90), y=height is straight down (el=-90).
+    const toXY = (az, el) => {
+      let a = (az + calOffsetDeg) % 360;
+      if (a < 0) a += 360;
+      const x = (a / 360) * canvas.width;
+      const y = ((90 - el) / 180) * canvas.height;
+      return [x, y];
+    };
+
+    const sorted = [...points].sort((p, q) => p.az - q.az);
+
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(0,255,0,0.85)";
+    ctx.beginPath();
+    sorted.forEach((p, i) => {
+      const [x, y] = toXY(p.az, p.el);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    // close the loop back to the first point (wraps around 360deg)
+    if (sorted.length > 1) {
+      const [x0, y0] = toXY(sorted[0].az + 360, sorted[0].el);
+      ctx.lineTo(x0, y0);
+    }
+    ctx.stroke();
+
+    ctx.fillStyle = "#0f0";
+    for (const p of sorted) {
+      const [x, y] = toXY(p.az, p.el);
+      ctx.beginPath();
+      ctx.arc(x, y, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  $("fileInput").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    img = new Image();
+    img.onload = () => {
+      draw();
+      setStatus("photo loaded -- click a known landmark to calibrate", true);
+      awaitingCalClick = true;
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
+  });
+
+  $("recalBtn").addEventListener("click", () => {
+    if (!img) { setStatus("load a photo first", true); return; }
+    awaitingCalClick = true;
+    setStatus("click a known landmark in the photo", true);
+  });
+
+  canvas.addEventListener("click", (e) => {
+    if (!awaitingCalClick || !img) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const clickX = (e.clientX - rect.left) * scaleX;
+    const rawAz = (clickX / canvas.width) * 360;
+
+    const known = prompt("Real-world compass bearing of that point (degrees, 0-360)?");
+    if (known === null || known.trim() === "") { awaitingCalClick = false; setStatus("calibration cancelled"); return; }
+    const knownAz = parseFloat(known);
+    if (isNaN(knownAz)) { setStatus("not a number -- calibration cancelled"); awaitingCalClick = false; return; }
+
+    calOffsetDeg = knownAz - rawAz;
+    saveCalibration();
+    awaitingCalClick = false;
+    setStatus("calibrated (offset " + calOffsetDeg.toFixed(1) + "°)");
+    draw();
+  });
+
+  loadPoints();
+  loadCalibration();
+})();
+</script>
+</body>
+</html>
