@@ -96,6 +96,12 @@ well as two at different heights. If your photo has been scaled unevenly
 so that is no longer true, tick **fit vertical scale separately** before
 calibrating, and pick points well apart vertically too.
 
+Like the survey page, this page has to be **served** rather than opened
+from disk: both import `geometry.js` as a module, and browsers block
+module imports over `file://`. Unlike the survey page it does not need
+HTTPS, since it touches no camera or sensor; any local HTTP server will
+do if that is all you have.
+
 What this does assume is that both axes are linear in angle, which is
 what equirectangular means. A cylindrical panorama is linear in azimuth
 but not in elevation, and a rectilinear (ordinary wide-angle) photo is
@@ -143,10 +149,15 @@ zoom level, so zooming never affects the actual recorded angle.
 
 ## Hosting
 
-Needs HTTPS -- `getUserMedia` (camera) and `DeviceOrientationEvent` sensor
-access are both blocked on plain HTTP by browser security policy. Both
-pages are single static files with no server-side logic, so any HTTPS
-static host works.
+The survey page needs HTTPS: `getUserMedia` (camera) and
+`DeviceOrientationEvent` sensor access are both blocked on plain HTTP by
+browser security policy. The overlay page only needs to be served at all,
+over http or https, because both pages import `geometry.js` as a module
+and browsers block module imports over `file://`.
+
+There is still nothing to build and no server-side logic: `index.html`,
+`overlay.html` and `geometry.js` are the whole deployment, so any static
+host works.
 
 ### Running your own copy (Raspberry Pi or Windows)
 

@@ -27,9 +27,14 @@ jobs:
           ls test/*.test.js
           node --test
 
+      # Both Python steps run even when the Node step above failed. Without
+      # that, a broken serve_https.py stays invisible in any run that also
+      # has a failing test, and gets found only once the tests are green.
       - uses: actions/setup-python@v5
+        if: ${{ !cancelled() }}
         with:
           python-version: '3.11'
 
       - name: serve_https.py compiles
+        if: ${{ !cancelled() }}
         run: python -m py_compile serve_https.py
