@@ -120,8 +120,9 @@
 // ?v= is a cache buster: bump it in the same commit as any geometry.js
 // change, so a browser holding an old copy cannot pair it with a new page.
 import {
-  fitCalibration, fitCalibration360, trimBounds, azToX, xToAz, elToY, yToEl, toHorizonProfile,
-} from "./geometry.js?v=6";
+  fitCalibration, fitCalibration360, trimBounds, photoSpanDeg,
+  azToX, xToAz, elToY, yToEl, toHorizonProfile,
+} from "./geometry.js?v=7";
 
 (function () {
   "use strict";
@@ -445,7 +446,8 @@ import {
       if (sameImage(storedCal && storedCal.image, imageKey)) {
         cal = storedCal;
         draw();
-        setStatus("calibrated (restored for this photo)");
+        setStatus("calibrated (restored for this photo) -- this photo covers "
+          + photoSpanDeg(cal, canvas.width).toFixed(0) + "° of azimuth");
         $("addPointModeBtn").disabled = false;
       } else {
         cal = null;
@@ -609,7 +611,13 @@ import {
     }
     saveCalibration();
     awaitingCalClick = false;
-    setStatus(cal.warning ? "calibrated, but " + cal.warning : "calibrated", !!cal.warning);
+    // The span is the sanity check: the fit is exact at both points you
+    // clicked however wrong the scale between them is, so a bad calibration
+    // looks fine right where you looked. You can see for yourself roughly
+    // how much of the horizon the photo shows, so a number that disagrees
+    // with your own eyes is the signal that something is off.
+    const span = "this photo covers " + photoSpanDeg(cal, canvas.width).toFixed(0) + "° of azimuth";
+    setStatus(cal.warning ? "calibrated (" + span + "), but " + cal.warning : "calibrated -- " + span, !!cal.warning);
     $("addPointModeBtn").disabled = false;
     draw();
   }

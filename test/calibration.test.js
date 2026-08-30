@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { fitCalibration, fitCalibration360, trimBounds, azToX, xToAz, elToY, yToEl } from "../geometry.js";
+import { fitCalibration, fitCalibration360, trimBounds, photoSpanDeg, azToX, xToAz, elToY, yToEl } from "../geometry.js";
 
 const close = (actual, expected, tol, what) =>
   assert.ok(Math.abs(actual - expected) <= tol, `${what}: got ${actual}, expected ~${expected}`);
@@ -196,4 +196,37 @@ test("trimBounds clamps to the photo instead of returning an out-of-range rectan
 
 test("a span far narrower than the photo is refused as a mis-click, not silently cropped", () => {
   assert.throws(() => trimBounds(1000, 1200, 6000), /too close together/i);
+});
+
+test("the calibration says how much of the horizon the photo covers", () => {
+  // 6000 px at 0.06 deg/px is a full rotation.
+  const cal = fitCalibration(
+    { x: 500, y: 1500, az: 100, el: 2 },
+    { x: 1500, y: 1500, az: 160, el: 2 },
+    PANO,
+  );
+  close(photoSpanDeg(cal, 6000), 360, 1e-9, "span of a full-rotation photo");
+});
+
+test("a mis-scaled calibration reports a span that gives it away", () => {
+  // Two markers 300 degrees apart on a photo that really covers 360. The
+  // fit takes the 60 degree short way, so the span it reports is nowhere
+  // near what the photo obviously shows. That is the whole point of
+  // putting the number on screen.
+  const cal = fitCalibration(
+    { x: 500, y: 1500, az: 109, el: 2 },
+    { x: 5500, y: 1500, az: 49, el: 2 },
+    PANO,
+  );
+  close(photoSpanDeg(cal, 6000), 72, 0.001, "span from the mis-scaled fit");
+});
+
+test("the span is a magnitude, so a right-to-left photo reports a positive one", () => {
+  const cal = fitCalibration360({ x: 100, y: 500, az: 20, el: 3 }, { imageWidth: 4096, direction: -1 });
+  close(photoSpanDeg(cal, 4096), 360, 1e-9, "span with azimuth decreasing across the photo");
+});
+
+test("the fixed-360 mode reports 360 by construction", () => {
+  const cal = fitCalibration360({ x: 100, y: 500, az: 20, el: 3 }, { imageWidth: 3000 });
+  close(photoSpanDeg(cal, 3000), 360, 1e-9, "span in fixed-360 mode");
 });
