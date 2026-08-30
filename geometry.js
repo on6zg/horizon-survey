@@ -149,22 +149,37 @@ export function fitCalibration(p1, p2, { imageWidth, imageHeight, verticalScale 
   if (Math.abs(az2 - p1.az) > 180) az2 += az2 < p1.az ? 360 : -360;
 
   const aScale = (az2 - p1.az) / dx;
+  if (!Number.isFinite(aScale) || aScale === 0) {
+    // Two points at the same azimuth give a zero scale, which every pixel
+    // conversion then divides by. The markers would all land off-canvas and
+    // the horizon line would simply not appear, while the status still said
+    // "calibrated". Refusing is the only honest answer.
+    throw new Error("those two points have the same azimuth, so there is no horizontal scale to derive");
+  }
   const aOffset = p1.az - aScale * p1.x;
 
   const dy = p2.y - p1.y;
   const minDy = imageHeight ? MIN_SPREAD_FRACTION * imageHeight : Infinity;
   let mode = verticalScale;
   let warning = null;
-  if (mode === "independent" && Math.abs(dy) < minDy) {
-    mode = "isotropic";
-    warning =
-      "those two points are too close together vertically to fit a separate vertical scale; " +
-      "using the horizontal scale for both axes instead";
+  let fitted = null;
+  if (mode === "independent") {
+    fitted = (p2.el - p1.el) / dy;
+    if (Math.abs(dy) < minDy) {
+      warning =
+        "those two points are too close together vertically to fit a separate vertical scale; " +
+        "using the horizontal scale for both axes instead";
+    } else if (!Number.isFinite(fitted) || fitted === 0) {
+      warning =
+        "those two points have the same elevation, so a separate vertical scale cannot be fitted; " +
+        "using the horizontal scale for both axes instead";
+    }
+    if (warning) mode = "isotropic";
   }
 
   let eScale, eOffset;
   if (mode === "independent") {
-    eScale = (p2.el - p1.el) / dy;
+    eScale = fitted;
     eOffset = p1.el - eScale * p1.y;
   } else {
     // Negative because y grows downward while elevation grows upward.
