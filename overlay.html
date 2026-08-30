@@ -316,49 +316,58 @@ import { fitCalibration, azToX, xToAz, elToY, yToEl, toHorizonProfile } from "./
     const margin = canvas.width * 0.10;
     const placed = points
       .map((p) => ({ p, x: azToX(cal, p.az, canvas.width), y: elToY(cal, p.el) }))
-      .filter((pt) => pt.x >= -margin && pt.x <= canvas.width + margin)
-      .sort((a, b) => a.x - b.x);
+      .filter((pt) => pt.x >= -margin && pt.x <= canvas.width + margin);
 
     if (!placed.length) {
       setStatus("none of the recorded points fall within this photo's coverage", true);
       return;
     }
 
-    // Flat dashed extension from the first/last real point out to the
-    // photo edges -- there's no data out there, so this is clearly marked
-    // as an approximation (dashed, not solid) rather than implying a
-    // measurement all the way to the edge.
-    ctx.setLineDash([8, 8]);
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = "rgba(0,255,0,0.5)";
-    if (placed[0].x > 0) {
-      ctx.beginPath();
-      ctx.moveTo(0, placed[0].y);
-      ctx.lineTo(placed[0].x, placed[0].y);
-      ctx.stroke();
-    }
-    const lastPt = placed[placed.length - 1];
-    if (lastPt.x < canvas.width) {
-      ctx.beginPath();
-      ctx.moveTo(lastPt.x, lastPt.y);
-      ctx.lineTo(canvas.width, lastPt.y);
-      ctx.stroke();
-    }
-    ctx.setLineDash([]);
+    // Calibration points mark a landmark you picked to align the photo
+    // (a chimney, the mast base) -- not the top of an obstruction. Feeding
+    // them into the horizon line puts a kink somewhere nothing is actually
+    // blocking, so they're excluded here even though they still draw as
+    // markers below and stay clickable/selectable.
+    const lineWorthy = placed.filter((pt) => !pt.p.cal).sort((a, b) => a.x - b.x);
 
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "rgba(0,255,0,0.85)";
-    ctx.beginPath();
-    placed.forEach((pt, i) => {
-      if (i === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
-    });
-    ctx.stroke();
+    if (lineWorthy.length) {
+      // Flat dashed extension from the first/last real point out to the
+      // photo edges -- there's no data out there, so this is clearly marked
+      // as an approximation (dashed, not solid) rather than implying a
+      // measurement all the way to the edge.
+      ctx.setLineDash([8, 8]);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(0,255,0,0.5)";
+      if (lineWorthy[0].x > 0) {
+        ctx.beginPath();
+        ctx.moveTo(0, lineWorthy[0].y);
+        ctx.lineTo(lineWorthy[0].x, lineWorthy[0].y);
+        ctx.stroke();
+      }
+      const lastPt = lineWorthy[lineWorthy.length - 1];
+      if (lastPt.x < canvas.width) {
+        ctx.beginPath();
+        ctx.moveTo(lastPt.x, lastPt.y);
+        ctx.lineTo(canvas.width, lastPt.y);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(0,255,0,0.85)";
+      ctx.beginPath();
+      lineWorthy.forEach((pt, i) => {
+        if (i === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
+      });
+      ctx.stroke();
+    }
 
     for (const pt of placed) {
       const isSelected = selectedPoint && pt.p === selectedPoint.p;
-      // Blue = computed from the photo (no sensor measurement behind it);
-      // green = actually measured with the phone's compass/tilt.
-      ctx.fillStyle = isSelected ? "#ff0" : (pt.p.source === "photo" ? "#4af" : "#0f0");
+      // Amber = calibration landmark, excluded from the line above. Blue =
+      // computed from the photo (no sensor measurement behind it). Green =
+      // actually measured with the phone's compass/tilt.
+      ctx.fillStyle = isSelected ? "#ff0" : (pt.p.cal ? "#c98a12" : (pt.p.source === "photo" ? "#4af" : "#0f0"));
       ctx.beginPath();
       ctx.arc(pt.x, pt.y, isSelected ? 7 : 5, 0, Math.PI * 2);
       ctx.fill();

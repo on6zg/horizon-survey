@@ -130,6 +130,12 @@ Once calibrated:
   photo but didn't separately walk out and measure. These are tagged
   `source=photo` (shown as blue markers, vs. green for sensor-measured
   ones) so the two stay distinguishable, including in the CSV.
+- Calibration points (the landmarks used to align the photo) show as
+  **amber** markers and stay clickable/deletable, but are left out of
+  the green horizon line itself -- a calibration point marks something
+  recognisable in the photo, not necessarily the top of an obstruction,
+  so including it in the line would put a kink somewhere nothing is
+  actually blocking.
 - **Download CSV** / **Download image** export the current point set,
   or the photo with the calibrated overlay baked in as a PNG.
 
