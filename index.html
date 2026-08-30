@@ -153,7 +153,10 @@
   let points = [];
   let currentAz = null, currentEl = null;
   let zoomLevel = 1.0;
-  let hwZoomTrack = null, hwZoomCaps = null;
+  // hwZoomTrack is the live video track; hwZoomRange is the {min,max,step}
+  // object from MediaTrackCapabilities.zoom, not the capabilities object
+  // that contains it.
+  let hwZoomTrack = null, hwZoomRange = null;
 
   const $ = (id) => document.getElementById(id);
 
@@ -303,18 +306,22 @@
 
     const track = stream.getVideoTracks()[0];
     const caps = track.getCapabilities ? track.getCapabilities() : null;
-    if (caps && caps.zoom) {
+    // capabilities.zoom is a {min, max, step} range; the current value
+    // lives in settings.zoom and is not necessarily 1.0.
+    if (caps && caps.zoom && typeof caps.zoom.max === "number") {
+      const settings = track.getSettings ? track.getSettings() : {};
       hwZoomTrack = track;
-      hwZoomCaps = caps;
-      zoomLevel = caps.zoom; // current hardware zoom, not necessarily 1.0
+      hwZoomRange = caps.zoom;
+      zoomLevel = typeof settings.zoom === "number" ? settings.zoom : caps.zoom.min;
     }
     applyZoom();
   }
 
   // ---- Zoom (hardware if available, else CSS digital zoom) ----
   function applyZoom() {
-    if (hwZoomTrack && hwZoomCaps) {
-      const z = Math.min(hwZoomCaps.max, Math.max(hwZoomCaps.min, zoomLevel));
+    if (hwZoomTrack && hwZoomRange) {
+      const z = clampZoom(zoomLevel);
+      zoomLevel = z;
       hwZoomTrack.applyConstraints({ advanced: [{ zoom: z }] }).catch(() => {});
       $("zoomLabel").textContent = z.toFixed(1) + "x";
     } else {
@@ -323,16 +330,24 @@
     }
   }
 
+  function clampZoom(z) {
+    const min = hwZoomRange ? hwZoomRange.min : 1;
+    const max = hwZoomRange ? hwZoomRange.max : 5;
+    return Math.min(max, Math.max(min, z));
+  }
+
+  function zoomStep() {
+    // Five of the device's own increments per tap: one step is often
+    // 0.1x or finer, which would take dozens of taps to cross the range.
+    return hwZoomRange ? (hwZoomRange.step || 0.1) * 5 : 0.5;
+  }
+
   $("zoomIn").addEventListener("click", () => {
-    const step = hwZoomCaps ? (hwZoomCaps.step || 0.1) * 5 : 0.5;
-    const max = hwZoomCaps ? hwZoomCaps.max : 5;
-    zoomLevel = Math.min(max, zoomLevel + step);
+    zoomLevel = clampZoom(zoomLevel + zoomStep());
     applyZoom();
   });
   $("zoomOut").addEventListener("click", () => {
-    const step = hwZoomCaps ? (hwZoomCaps.step || 0.1) * 5 : 0.5;
-    const min = hwZoomCaps ? hwZoomCaps.min : 1;
-    zoomLevel = Math.max(min, zoomLevel - step);
+    zoomLevel = clampZoom(zoomLevel - zoomStep());
     applyZoom();
   });
 
