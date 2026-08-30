@@ -1,0 +1,35 @@
+name: tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # No install step and no lockfile on purpose: package.json declares no
+      # dependencies, it only marks the repo as ESM so node can import
+      # geometry.js.
+      #
+      # The `ls` is not decoration. `node --test` exits 0 when it finds no
+      # test files at all, so without it a branch that dropped the suite
+      # would show a green check.
+      - name: Unit tests
+        run: |
+          ls test/*.test.js
+          node --test
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: serve_https.py compiles
+        run: python -m py_compile serve_https.py
