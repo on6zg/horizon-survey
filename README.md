@@ -1,71 +1,101 @@
 # Horizon Survey
 
-A single-page, no-backend web tool for surveying the real visible horizon
+A two-page, no-backend web tool for surveying the real visible horizon
 around an antenna site -- for each direction you point your phone, it
 records the compass azimuth and the elevation angle (tilt above horizontal)
-of whatever obstruction (building, tree, terrain) you're aiming at. Built
-for mapping directional elevation limits for Moon/EME tracking, where a
-single flat elevation floor either wastes visible sky in open directions
-or risks pointing at obstructions in blocked ones.
+of whatever obstruction (building, tree, terrain) you're aiming at, and
+can overlay that data on a panorama photo of the site. Built for mapping
+directional elevation limits for Moon/EME tracking, where a single flat
+elevation floor either wastes visible sky in open directions or risks
+pointing at obstructions in blocked ones.
 
-No app install, no backend, no build step -- open the page on your phone,
-walk around, tap Record at each obstruction, download a CSV when done.
+No app install, no backend, no build step -- open `index.html` on your
+phone, walk around, tap Record at each obstruction, download a CSV when
+done. Verified working live: camera, compass, and tilt sensors all
+confirmed accurate on real hardware.
 
-## How to use it
+## Surveying (`index.html`)
 
 1. Open the page on your phone (needs HTTPS -- see Hosting below).
 2. Tap **Start**, grant camera and motion-sensor permission.
 3. Aim the crosshair at the top edge of an obstruction in some direction
    (use the zoom controls if it's small/distant), tap **Record point**.
-4. Repeat every 10-30 degrees of azimuth as you walk/turn around the site.
-5. Tap **Download CSV** when done -- gives you `azimuth_deg,elevation_deg`
-   rows you can open in a spreadsheet or feed into other tools.
+   Use **Mark calibration point** instead for a couple of landmarks
+   you'll recognize in a panorama photo later (shown starred in the
+   list) -- see Panorama overlay below for why.
+4. Repeat every 10-30 degrees of azimuth as you walk/turn around the
+   site. A short cooldown after each tap (with a "Recorded" confirmation
+   on the button) stops an accidental double-tap from recording the same
+   spot twice.
+5. Tap **Download CSV** when done -- gives you
+   `azimuth_deg,elevation_deg,timestamp,is_calibration,source` rows you
+   can open in a spreadsheet or feed into other tools.
 
 Points are also saved to the browser's local storage as you go, so an
 accidental reload mid-survey doesn't lose your progress -- but the CSV
-download is the actual durable copy; don't rely on browser storage alone.
+download is the actual durable copy; don't rely on browser storage
+alone. The recorded-points list is collapsed by default (tap to expand)
+so it can't grow up over the camera view and block your aim as points
+accumulate.
 
-## ⚠️ Verify the compass heading on your own device before trusting it
-
-This has not yet been tested on real hardware. `alpha` (compass heading)
-and `beta` (tilt) from the `DeviceOrientationEvent` API are notoriously
-inconsistent across phones/browsers -- the heading correction formula in
-`index.html` (search `HEADING_CORRECTION`) is the commonly-used convention,
-not something verified against your specific phone. Before doing a real
-survey: point the phone at a known direction (e.g. due north via a real
-compass) and confirm the on-screen azimuth reading matches, adjusting the
-formula if it's backwards or offset. Same idea for elevation -- hold the
-phone level (aimed at the horizon) and confirm it reads ~0 degrees.
+**Compass heading**: `alpha`/`beta` from the `DeviceOrientationEvent` API
+vary across phones/browsers -- before a real survey, point the phone at
+a known direction (a real compass) and confirm the on-screen azimuth
+matches; adjust the `HEADING_CORRECTION` formula in `index.html` if it's
+backwards or offset. Same idea for elevation: hold the phone level and
+confirm it reads ~0 degrees. Large nearby metal (a mast, guy wires) can
+also distort the compass locally -- if readings look erratic specifically
+near such an object, that's a likely cause, not a tool bug.
 
 ## Panorama overlay (`overlay.html`)
 
-Upload a 360&deg; equirectangular panorama photo (e.g. your phone's Photo
-Sphere mode) and it draws your recorded horizon line right on top. By
-default it uses the points already saved by the survey page in that
-browser's local storage (same device) -- but you can also load the CSV
-you downloaded from the survey page directly, which is how to view this
-on a different device (e.g. a PC): take the photo and record the survey
-on your phone, download the CSV there, then open this page on your PC
-and load both the photo and the CSV. A panorama photo has no built-in
-compass reference, so there's a one-time calibration step: click any
-point in the photo whose real-world bearing you know (a landmark, a
-building corner), enter that bearing, and everything lines up from
-there. Recalibrate any time from the button if a new photo is loaded.
+Upload a panorama photo of the site (any width/height -- a full 360&deg;
+equirectangular "Photo Sphere" or a normal narrower-FOV cylindrical
+panorama both work, and the photo doesn't need to cover exactly 360&deg;
+either) and it draws your recorded horizon line on top. By default it
+uses the points saved by the survey page in that browser's local storage
+(same device) -- or load the CSV you downloaded, which is how to view
+this on a different device (e.g. record on your phone, view on a PC).
+
+A photo has no built-in compass/scale reference, so it needs a two-point
+calibration: click two points in the photo spread apart from each other,
+and enter each one's real azimuth and elevation. From those two points
+the tool derives the actual pixel-to-degree scale for that specific
+photo -- no assumption about its projection, width, or field of view.
+If you marked calibration points while surveying (see above), a picker
+appears letting you select which two those were instead of typing
+numbers -- their az/el come from your recorded data.
+
+Once calibrated:
+- **Click any marker** to see its exact azimuth/elevation in a popup
+  (and a **Delete selected point** button appears) -- useful for
+  checking whether a spike in the line is a real obstruction (e.g. a
+  narrow nearby object like the mast, which legitimately produces a
+  big elevation swing over a tiny azimuth range) or a bad reading worth
+  removing.
+- **"Add point from photo"** mode: click anywhere on the photo to add a
+  new point computed directly from the calibration, no phone sensor
+  needed -- useful for obstruction points you can see clearly in the
+  photo but didn't separately walk out and measure. These are tagged
+  `source=photo` (shown as blue markers, vs. green for sensor-measured
+  ones) so the two stay distinguishable, including in the CSV.
+- **Download CSV** / **Download image** export the current point set,
+  or the photo with the calibrated overlay baked in as a PNG.
+
+The connecting line extends (dashed, marking it as an approximation) from
+your first/last real point out to the photo's edges, since there's
+otherwise no data right at the edge azimuth.
 
 **Shooting the panorama**: don't stand right against the antenna mast --
-most panorama/Photo-Sphere apps need a clear, unobstructed pivot to
-stitch correctly, and a large nearby object in the way will break the
-capture. Stand a meter or two off to the side instead; over that short a
-distance, anything more than a few meters away barely shifts in apparent
-bearing, so it won't meaningfully throw off the alignment. Whatever part
-of the photo the mast/antenna itself still blocks is fine to leave as-is
--- the recorded horizon-line data comes from your walk-around survey, not
-from the photo, so it stays accurate there regardless of what the photo
-shows in that slice.
-
-Assumes a standard full-sphere equirectangular image (360&deg; horizontal,
-180&deg; vertical) -- most phone panorama-sphere output matches this, but
-hasn't been tested against a real photo yet.
+most panorama apps need a clear, unobstructed pivot to stitch correctly,
+and a large nearby object in the way will break the capture. Stand a
+meter or two off to the side instead; over that short a distance,
+anything more than a few meters away barely shifts in apparent bearing,
+so it won't meaningfully throw off the alignment. Whatever part of the
+photo the mast/antenna itself still blocks is fine to leave as-is -- the
+recorded horizon-line data comes from your walk-around survey, not the
+photo, so it stays accurate there regardless of what the photo shows in
+that slice.
 
 ## Camera zoom
 
@@ -78,9 +108,9 @@ zoom level, so zooming never affects the actual recorded angle.
 ## Hosting
 
 Needs HTTPS -- `getUserMedia` (camera) and `DeviceOrientationEvent` sensor
-access are both blocked on plain HTTP by browser security policy. This is
-a single static file with no server-side logic, so any HTTPS static host
-works; it was built to deploy the same way as this station's other
+access are both blocked on plain HTTP by browser security policy. Both
+pages are single static files with no server-side logic, so any HTTPS
+static host works; built to deploy the same way as this station's other
 `*.local` nginx vhosts (self-signed cert is fine, this isn't a
 public-trust situation).
 
