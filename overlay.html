@@ -58,8 +58,15 @@
   <label style="font-size:0.85rem; color:#ccc;">Photo:
     <input type="file" id="fileInput" accept="image/*">
   </label>
-  <button id="recalBtn">Recalibrate</button>
+  <button id="recalBtn">Manual calibration</button>
   <span id="calStatus">no photo loaded</span>
+</div>
+
+<div id="markedCalBox" style="display:none; padding:10px; background:#16161c; border-radius:8px; margin:0 0 10px; font-size:0.85rem;">
+  <div style="color:#c98a12; margin-bottom:6px;">&#9733; Use marked calibration points (no typing needed):</div>
+  <label>Point 1: <select id="calSelect1"></select></label>
+  <label style="margin-left:10px;">Point 2: <select id="calSelect2"></select></label>
+  <button id="useMarkedBtn" style="margin-left:10px; padding:6px 10px; border-radius:6px; border:none; background:#c98a12; color:#fff;">Use these &rarr; click photo twice</button>
 </div>
 
 <p id="noPoints" style="display:none;">
@@ -92,6 +99,10 @@
   let cal = null; // { aScale, aOffset, eScale, eOffset }
   let calPoints = []; // pixel clicks collected during calibration, up to 2
   let awaitingCalClick = false;
+  // When calibrating from marked points, their az/el is already known --
+  // pendingCalTargets holds those, so clicks only need to supply pixels.
+  // null means manual mode (prompt for az/el on each click instead).
+  let pendingCalTargets = null;
 
   function loadPoints() {
     try {
@@ -99,6 +110,24 @@
       points = raw ? JSON.parse(raw) : [];
     } catch (e) { points = []; }
     $("noPoints").style.display = points.length ? "none" : "block";
+    updateMarkedCalUI();
+  }
+
+  function updateMarkedCalUI() {
+    const marked = points.filter((p) => p.cal);
+    const box = $("markedCalBox");
+    if (marked.length < 2) { box.style.display = "none"; return; }
+    box.style.display = "block";
+    for (const sel of [$("calSelect1"), $("calSelect2")]) {
+      sel.innerHTML = "";
+      marked.forEach((p, i) => {
+        const opt = document.createElement("option");
+        opt.value = i;
+        opt.textContent = p.az.toFixed(1) + "° / " + p.el.toFixed(1) + "°" + (p.t ? " (" + p.t.slice(0, 16) + ")" : "");
+        sel.appendChild(opt);
+      });
+    }
+    if ($("calSelect2").options.length > 1) $("calSelect2").selectedIndex = 1;
   }
 
   function parseCsv(text) {
@@ -109,7 +138,8 @@
       const az = parseFloat(cols[0]);
       const el = parseFloat(cols[1]);
       if (isNaN(az) || isNaN(el)) continue; // skips the header row too
-      parsed.push({ az, el, t: cols[2] || "" });
+      const cal = cols[3] !== undefined && cols[3].trim() === "1";
+      parsed.push({ az, el, t: cols[2] || "", cal });
     }
     return parsed;
   }
@@ -127,6 +157,7 @@
       points = parsed;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(points));
       $("noPoints").style.display = "none";
+      updateMarkedCalUI();
       draw();
     };
     reader.readAsText(file);
@@ -225,7 +256,20 @@
     startCalibration();
   });
 
+  $("useMarkedBtn").addEventListener("click", () => {
+    if (!img) { setStatus("load a photo first", true); return; }
+    const marked = points.filter((p) => p.cal);
+    const i1 = parseInt($("calSelect1").value, 10);
+    const i2 = parseInt($("calSelect2").value, 10);
+    if (i1 === i2) { setStatus("pick two different points", true); return; }
+    pendingCalTargets = [marked[i1], marked[i2]];
+    calPoints = [];
+    awaitingCalClick = true;
+    setStatus("click where " + marked[i1].az.toFixed(1) + "°/" + marked[i1].el.toFixed(1) + "° is in the photo (1 of 2)", true);
+  });
+
   function startCalibration() {
+    pendingCalTargets = null;
     calPoints = [];
     awaitingCalClick = true;
     setStatus("click a known landmark (1 of 2) -- pick points spread apart for accuracy", true);
@@ -262,6 +306,19 @@
     const scaleY = canvas.height / rect.height;
     const x = (e.clientX - rect.left) * scaleX;
     const y = (e.clientY - rect.top) * scaleY;
+
+    if (pendingCalTargets) {
+      // az/el already known from the selected marked points -- no prompt.
+      const target = pendingCalTargets[calPoints.length];
+      calPoints.push({ x, y, az: target.az, el: target.el });
+      if (calPoints.length === 1) {
+        const next = pendingCalTargets[1];
+        setStatus("click where " + next.az.toFixed(1) + "°/" + next.el.toFixed(1) + "° is in the photo (2 of 2)", true);
+      } else {
+        finishCalibration();
+      }
+      return;
+    }
 
     const answer = prompt(
       "Point " + (calPoints.length + 1) + " of 2 -- real-world azimuth,elevation for this spot (e.g. 145,3.5):"

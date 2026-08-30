@@ -47,8 +47,8 @@
     background: rgba(10,10,14,.92); border-top: 1px solid #333;
     max-height: 44vh; display: flex; flex-direction: column;
   }
-  #actions { display: flex; gap: 8px; margin-bottom: 6px; }
-  #actions button {
+  .actions { display: flex; gap: 8px; margin-bottom: 6px; }
+  .actions button {
     flex: 1; padding: 12px 6px; border-radius: 10px; border: none;
     font-size: 0.95rem; font-weight: 600;
   }
@@ -113,15 +113,22 @@
   </div>
 
   <div id="panel">
-    <div id="actions">
+    <div class="actions">
       <button id="recordBtn">Record point</button>
+      <button id="calBtn" style="background:#c98a12;">Mark calibration point</button>
+    </div>
+    <div class="actions">
       <button id="downloadBtn">Download CSV</button>
       <button id="clearBtn">Clear</button>
     </div>
     <div id="count">0 points</div>
+    <p style="font-size:0.7rem; color:#c98a12; margin:2px 0 4px;">
+      &#9733; = calibration point -- for the overlay page, mark two landmarks
+      you'll be able to recognize in the panorama photo.
+    </p>
     <div id="list">
       <table>
-        <thead><tr><th>Az</th><th>El</th><th></th></tr></thead>
+        <thead><tr><th></th><th>Az</th><th>El</th><th></th></tr></thead>
         <tbody id="listBody"></tbody>
       </table>
     </div>
@@ -159,7 +166,8 @@
     const sorted = points.map((p, i) => ({ ...p, i })).sort((a, b) => a.az - b.az);
     for (const p of sorted) {
       const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${p.az.toFixed(1)}&deg;</td><td>${p.el.toFixed(1)}&deg;</td><td class="del" data-i="${p.i}">delete</td>`;
+      const star = p.cal ? "&#9733;" : "";
+      tr.innerHTML = `<td style="color:#c98a12;">${star}</td><td>${p.az.toFixed(1)}&deg;</td><td>${p.el.toFixed(1)}&deg;</td><td class="del" data-i="${p.i}">delete</td>`;
       tbody.appendChild(tr);
     }
     $("count").textContent = points.length + " point" + (points.length === 1 ? "" : "s");
@@ -174,15 +182,18 @@
     renderList();
   });
 
-  $("recordBtn").addEventListener("click", () => {
+  function recordPoint(isCal) {
     if (currentAz === null || currentEl === null) {
       setStatus("no sensor reading yet");
       return;
     }
-    points.push({ az: currentAz, el: currentEl, t: new Date().toISOString() });
+    points.push({ az: currentAz, el: currentEl, t: new Date().toISOString(), cal: !!isCal });
     savePoints();
     renderList();
-  });
+  }
+
+  $("recordBtn").addEventListener("click", () => recordPoint(false));
+  $("calBtn").addEventListener("click", () => recordPoint(true));
 
   $("clearBtn").addEventListener("click", () => {
     if (points.length && !confirm("Clear all " + points.length + " recorded points?")) return;
@@ -193,8 +204,8 @@
 
   $("downloadBtn").addEventListener("click", () => {
     const sorted = [...points].sort((a, b) => a.az - b.az);
-    let csv = "azimuth_deg,elevation_deg,timestamp\n";
-    for (const p of sorted) csv += `${p.az.toFixed(2)},${p.el.toFixed(2)},${p.t}\n`;
+    let csv = "azimuth_deg,elevation_deg,timestamp,is_calibration\n";
+    for (const p of sorted) csv += `${p.az.toFixed(2)},${p.el.toFixed(2)},${p.t},${p.cal ? 1 : 0}\n`;
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
