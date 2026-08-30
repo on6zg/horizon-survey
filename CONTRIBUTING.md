@@ -78,6 +78,12 @@ To review it:
   afterwards.
 - Not merging is also an answer. Say why and close it.
 
+Whatever you decide, **say it on the pull request** rather than only in
+whatever tool you reviewed with (`gh pr comment <n>`, or the comment box
+at the bottom of the PR page). Including when there is nothing to change:
+the contributor cannot otherwise tell a branch you read and were happy
+with from one you have not got to yet.
+
 **Giving someone write access** is not needed for any of the above. A
 contributor forks and opens pull requests with no permissions at all.
 Write access (Settings -> Collaborators) only matters if you want someone

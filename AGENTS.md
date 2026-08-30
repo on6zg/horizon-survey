@@ -51,6 +51,14 @@ write what you did not run instead. Nothing here can test the camera, the
 compass, or a real phone, so any change to those paths ships untested by
 definition and the PR has to say which ones it touched.
 
+**A review lands on the pull request, not in a terminal.** Post the
+outcome with `gh pr comment <n>`: per finding the file and line, what is
+wrong, and whether it blocks the merge. Post a comment even when nothing
+needs changing, so the contributor can tell a branch that was read from
+one nobody has got to yet. A review that only ever existed in someone's
+console did not happen. If the review was delegated to a subagent, that
+applies to the subagent too: it posts, or you post what it hands back.
+
 **Self-review the diff before pushing.** Three things that have already
 gone wrong here:
 
