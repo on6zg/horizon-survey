@@ -64,6 +64,7 @@
   <button id="addPointModeBtn" disabled>Add point from photo: OFF</button>
   <button id="deleteSelectedBtn" disabled style="background:#a33;">Delete selected point</button>
   <button id="downloadCsvBtn">Download CSV</button>
+  <button id="downloadImgBtn">Download image</button>
   <span id="calStatus">no photo loaded</span>
 </div>
 <p style="font-size:0.75rem; color:#999; margin:-4px 0 8px;">
@@ -196,6 +197,29 @@
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  });
+
+  $("downloadImgBtn").addEventListener("click", () => {
+    if (!img) { setStatus("load a photo first", true); return; }
+    // Render a clean version (no debug crosshair, no yellow selection
+    // highlight) for the exported file, then restore the interactive view.
+    const savedClick = lastClickPos, savedSel = selectedPoint;
+    lastClickPos = null;
+    selectedPoint = null;
+    draw();
+    canvas.toBlob((blob) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "horizon_survey_overlay_" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".png";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      lastClickPos = savedClick;
+      selectedPoint = savedSel;
+      draw();
+    }, "image/png");
   });
 
   function loadCalibration() {
