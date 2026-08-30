@@ -110,9 +110,46 @@ zoom level, so zooming never affects the actual recorded angle.
 Needs HTTPS -- `getUserMedia` (camera) and `DeviceOrientationEvent` sensor
 access are both blocked on plain HTTP by browser security policy. Both
 pages are single static files with no server-side logic, so any HTTPS
-static host works; built to deploy the same way as this station's other
-`*.local` nginx vhosts (self-signed cert is fine, this isn't a
-public-trust situation).
+static host works.
+
+### Running your own copy (Raspberry Pi or Windows)
+
+`serve_https.py` is a small self-contained server included in this repo
+for exactly this -- no nginx, no separate certificate tooling, works the
+same way on a Pi and on Windows. It generates its own self-signed
+certificate on first run and serves this folder over HTTPS.
+
+**Raspberry Pi (or any Linux box):**
+```bash
+git clone https://github.com/on6zg/horizon-survey.git
+cd horizon-survey
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-serve.txt
+.venv/bin/python serve_https.py
+```
+
+**Windows:**
+1. Install [Python 3](https://www.python.org/downloads/windows/) (check
+   "Add python.exe to PATH" during setup).
+2. Download this repo (Code -> Download ZIP on GitHub, or `git clone` if
+   you have Git installed) and extract it.
+3. Open PowerShell in that folder, then:
+   ```powershell
+   py -m venv .venv
+   .venv\Scripts\pip install -r requirements-serve.txt
+   .venv\Scripts\python serve_https.py
+   ```
+4. Windows will likely prompt to allow the app through the firewall the
+   first time -- allow it for **private networks**, or phones on the
+   same Wi-Fi won't be able to reach it.
+
+Either way, the script prints a URL like `https://<your-IP>:8443/index.html`
+-- open that from a phone on the same Wi-Fi/LAN. The browser will warn
+the certificate isn't trusted; that's expected for a self-signed cert
+and fine to accept/proceed through -- this isn't a public-trust
+situation, just your own phone talking to your own laptop/Pi on your
+own network. `Ctrl+C` stops the server -- no persistent install needed
+for a one-off site survey.
 
 ## License
 
