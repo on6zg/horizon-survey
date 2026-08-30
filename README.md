@@ -11,8 +11,9 @@ pointing at obstructions in blocked ones.
 
 No app install, no backend, no build step -- open `index.html` on your
 phone, walk around, tap Record at each obstruction, download a CSV when
-done. Verified working live: camera, compass, and tilt sensors all
-confirmed accurate on real hardware.
+done. The angle maths in `geometry.js` is covered by unit tests
+(`npm test`); the sensor path itself still needs confirming against a
+real compass on your own phone, see Compass heading below.
 
 ## Surveying (`index.html`)
 
@@ -38,14 +39,27 @@ alone. The recorded-points list is collapsed by default (tap to expand)
 so it can't grow up over the camera view and block your aim as points
 accumulate.
 
-**Compass heading**: `alpha`/`beta` from the `DeviceOrientationEvent` API
-vary across phones/browsers -- before a real survey, point the phone at
-a known direction (a real compass) and confirm the on-screen azimuth
-matches; adjust the `HEADING_CORRECTION` formula in `index.html` if it's
-backwards or offset. Same idea for elevation: hold the phone level and
-confirm it reads ~0 degrees. Large nearby metal (a mast, guy wires) can
-also distort the compass locally -- if readings look erratic specifically
-near such an object, that's a likely cause, not a tool bug.
+**Compass heading**: azimuth and elevation are both derived from the
+device's full orientation matrix in `geometry.js`, so holding the phone
+rolled or sideways no longer skews the reading. What the code cannot do
+is invent a compass reference that the device never supplied: if the
+browser reports no north-referenced heading, the HUD stays blank and the
+status line says so, rather than showing a plausible-looking number with
+an arbitrary offset in it.
+
+Before a real survey, still point the phone at a known direction (a real
+compass) and confirm the on-screen azimuth matches, and hold it level to
+confirm elevation reads ~0 degrees. Two things this tool has no way to
+correct for you:
+
+- **Magnetic declination.** Whether the browser's heading is referenced
+  to true or magnetic north is not stated in the event and differs by
+  platform, so a survey may carry a constant offset the size of your
+  local declination (a degree or two in western Europe, much more
+  elsewhere).
+- **Local distortion.** Large nearby metal (a mast, guy wires) pulls the
+  magnetometer around. If readings look erratic specifically near such an
+  object, that is the likely cause, not a tool bug.
 
 ## Panorama overlay (`overlay.html`)
 

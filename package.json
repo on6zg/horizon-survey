@@ -1,0 +1,10 @@
+{
+  "name": "horizon-survey",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tests for the shared geometry used by index.html and overlay.html. The pages themselves need no build step and no dependencies; this file exists so `node --test` can import geometry.js as an ES module.",
+  "scripts": {
+    "test": "node --test"
+  }
+}
