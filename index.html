@@ -295,6 +295,27 @@ import { orientationToAzEl } from "./geometry.js?v=2";
     window.addEventListener("deviceorientation", handleOrientation, true);
   }
 
+  // ---- Screen wake lock ----
+  // A survey is minutes of walking and aiming with no touch input, so the
+  // phone locks on its normal timeout and takes the camera stream and the
+  // sensor listeners with it. Not supported everywhere, and a refusal is
+  // not worth reporting: the page works without it.
+  let wakeLock = null;
+
+  async function requestWakeLock() {
+    if (!("wakeLock" in navigator) || wakeLock) return;
+    try {
+      wakeLock = await navigator.wakeLock.request("screen");
+      // The browser releases the lock whenever the page is hidden, so the
+      // sentinel has to be dropped here or it is never re-requested.
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    } catch (e) { wakeLock = null; }
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && $("stage").style.display !== "none") requestWakeLock();
+  });
+
   // ---- Camera ----
   async function startCamera() {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -344,6 +365,7 @@ import { orientationToAzEl } from "./geometry.js?v=2";
     try {
       await startCamera();
       await startOrientation();
+      requestWakeLock(); // must be inside the click handler: it needs a user gesture
       loadPoints();
       renderList();
       $("startOverlay").style.display = "none";
