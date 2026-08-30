@@ -70,6 +70,7 @@
   <button id="addPointModeBtn" disabled>Add point from photo: OFF</button>
   <button id="deleteSelectedBtn" disabled style="background:#a33;">Delete selected point</button>
   <button id="downloadCsvBtn">Download CSV</button>
+  <button id="downloadJsonBtn">Download JSON</button>
   <button id="downloadImgBtn">Download image</button>
   <label style="font-size:0.8rem; color:#ccc;" title="Off (recommended): the vertical scale is taken from the horizontal one, which is exact for an equirectangular panorama. On: the vertical scale is fitted from your two elevations, for a photo that has been scaled unevenly.">
     <input type="checkbox" id="independentVertical"> fit vertical scale separately
@@ -110,7 +111,7 @@
 <script type="module">
 // ?v= is a cache buster: bump it in the same commit as any geometry.js
 // change, so a browser holding an old copy cannot pair it with a new page.
-import { fitCalibration, azToX, xToAz, elToY, yToEl } from "./geometry.js?v=3";
+import { fitCalibration, azToX, xToAz, elToY, yToEl, toHorizonProfile } from "./geometry.js?v=4";
 
 (function () {
   "use strict";
@@ -224,15 +225,29 @@ import { fitCalibration, azToX, xToAz, elToY, yToEl } from "./geometry.js?v=3";
     for (const p of sorted) {
       csv += `${p.az.toFixed(2)},${p.el.toFixed(2)},${p.t || ""},${p.cal ? 1 : 0},${p.source || "sensor"}\n`;
     }
-    const blob = new Blob([csv], { type: "text/csv" });
+    download(csv, "text/csv", "horizon_survey", "csv");
+  });
+
+  function download(text, mime, base, ext) {
+    const blob = new Blob([text], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "horizon_survey_" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".csv";
+    a.download = base + "_" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + "." + ext;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  }
+
+  // horizon_profile.json is what vk5dj-tracker's sky plot reads directly,
+  // so exporting it here removes the conversion step.
+  $("downloadJsonBtn").addEventListener("click", () => {
+    try {
+      download(JSON.stringify(toHorizonProfile(points), null, 2), "application/json", "horizon_profile", "json");
+    } catch (err) {
+      setStatus(err.message, true);
+    }
   });
 
   $("downloadImgBtn").addEventListener("click", () => {
