@@ -38,3 +38,21 @@ jobs:
       - name: serve_https.py compiles
         if: ${{ !cancelled() }}
         run: python -m py_compile serve_https.py
+
+  # The job above is the fresh-clone case: nothing installed, so the browser
+  # tests skip themselves and `npm test` still means something. This one is
+  # the same command with Playwright present, so both states stay honest.
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      - name: Browser tests
+        run: node --test

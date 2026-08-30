@@ -1,3 +1,4 @@
+node_modules/
 .venv/
 __pycache__/
 # Certificates now live in ~/.horizon-survey/, outside the served folder.
