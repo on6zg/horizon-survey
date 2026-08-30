@@ -162,3 +162,101 @@ test("a file the browser cannot decode says so instead of doing nothing", { skip
   assert.match((await page.textContent("#calStatus")).trim(), /could not decode/i);
   await context.close();
 });
+
+// ---- The trim tool -------------------------------------------------------
+//
+// This flow reached users without a test and came back as a blank-canvas
+// report. The unit tests cover trimBounds(); nothing covered two clicks
+// turning into a cropped photo you can then calibrate.
+
+/** Trim by clicking near both edges, and report what the canvas holds after. */
+async function trimAcross(page, canvasWidth) {
+  await page.click("#trimBtn");
+  await page.click("#canvas", { position: { x: Math.round(canvasWidth * 0.04), y: 100 } });
+  await page.waitForTimeout(120);
+  await page.click("#canvas", { position: { x: Math.round(canvasWidth * 0.96), y: 100 } });
+  // Wait on the status line, not on the canvas width. A photo wider than
+  // MAX_CANVAS_WIDTH is re-capped to the same 4096 after trimming, so its
+  // width does not change at all: only the height does, because the aspect
+  // ratio did.
+  await page.waitForFunction(
+    () => /trimmed to \d+px/.test(document.getElementById("calStatus").textContent),
+    undefined,
+    { timeout: 30_000 },
+  );
+  return page.evaluate(() => {
+    const c = document.getElementById("canvas");
+    const ctx = c.getContext("2d");
+    let drawn = 0, total = 0;
+    for (let x = 4; x < c.width; x += Math.max(1, Math.floor(c.width / 20))) {
+      for (let y = 4; y < c.height; y += Math.max(1, Math.floor(c.height / 10))) {
+        total++;
+        if (ctx.getImageData(x, y, 1, 1).data[3] !== 0) drawn++;
+      }
+    }
+    return { w: c.width, h: c.height, drawn, total, status: document.getElementById("calStatus").textContent.trim() };
+  });
+}
+
+test("trimming leaves a narrower photo that actually has pixels in it", { skip }, async () => {
+  const { page, context } = await overlayPage();
+  await page.setInputFiles("#fileInput", panoA);
+  await waitForCanvas(page, 1200);
+
+  const after = await trimAcross(page, 1200);
+  assert.ok(after.w < 1200, `canvas should be narrower after trimming, was ${after.w}`);
+  assert.equal(after.drawn, after.total, "every sampled pixel must be drawn, not a blank canvas");
+  assert.match(after.status, /trimmed to \d+px/);
+  await context.close();
+});
+
+test("a trimmed photo calibrates from one point at exactly 360 over its width", { skip }, async () => {
+  const { page, context } = await overlayPage();
+  await page.setInputFiles("#fileInput", panoA);
+  await waitForCanvas(page, 1200);
+  const after = await trimAcross(page, 1200);
+
+  await page.check("#fixed360");
+  await page.click("#recalBtn");
+  page.removeAllListeners("dialog");
+  page.on("dialog", (d) => d.accept("100,2"));
+  await page.click("#canvas", { position: { x: 200, y: 150 } });
+  await page.waitForTimeout(300);
+
+  const cal = await page.evaluate(() => JSON.parse(localStorage.getItem("horizonSurveyCalibration")));
+  assert.ok(Math.abs(cal.aScale - 360 / after.w) < 1e-9,
+    `aScale ${cal.aScale} should be 360/${after.w} = ${360 / after.w}`);
+  await context.close();
+});
+
+test("a photo far larger than the display canvas still trims to something visible", { skip }, async () => {
+  const { page, context } = await overlayPage();
+  const big = writePanorama("bigtrim.png", 6000, 3000);
+  await page.setInputFiles("#fileInput", big);
+  await waitForCanvas(page, 4096);
+
+  const after = await trimAcross(page, 4096);
+  assert.equal(after.drawn, after.total, "a large photo must not trim to a blank canvas");
+  // The width stays at the cap; the height is what records that a narrower
+  // slice of the same photo is now being shown.
+  assert.equal(after.w, 4096);
+  assert.ok(after.h > 2048, `height should grow as the photo narrows, was ${after.h}`);
+  await context.close();
+});
+
+test("two clicks too close together are refused rather than cropping the photo away", { skip }, async () => {
+  const { page, context } = await overlayPage();
+  await page.setInputFiles("#fileInput", panoA);
+  await waitForCanvas(page, 1200);
+
+  await page.click("#trimBtn");
+  await page.click("#canvas", { position: { x: 300, y: 100 } });
+  await page.waitForTimeout(120);
+  await page.click("#canvas", { position: { x: 380, y: 100 } });
+  await page.waitForTimeout(400);
+
+  assert.match((await page.textContent("#calStatus")).trim(), /too close together/i);
+  assert.equal(await page.evaluate(() => document.getElementById("canvas").width), 1200,
+    "the photo must be left alone when the clicks are refused");
+  await context.close();
+});
