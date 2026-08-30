@@ -105,6 +105,15 @@ well as two at different heights. If your photo has been scaled unevenly
 so that is no longer true, tick **fit vertical scale separately** before
 calibrating, and pick points well apart vertically too.
 
+After calibrating, the status line reports **how much of the horizon the
+photo covers** according to that calibration. That number is the sanity
+check worth looking at every time: the fit is exact at the two points you
+clicked no matter how wrong the scale between them is, so a bad
+calibration looks right where you looked and is wrong everywhere else.
+You can see with your own eyes roughly how far round a photo turns, so if
+a photo that plainly covers most of the horizon reports 72&deg;, the
+calibration is wrong and the next paragraph is why.
+
 **A pitfall with two widely-spread calibration points.** Two azimuths on
 their own don't say which way around the circle they're apart -- 109&deg;
 to 359&deg; could be a 110&deg; gap or a 250&deg; one. The tool always

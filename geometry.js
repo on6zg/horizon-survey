@@ -249,6 +249,22 @@ export function trimBounds(x1, x2, imageWidth) {
   return { left: Math.round(left), width: Math.round(width) };
 }
 
+/**
+ * How many degrees of azimuth this calibration says the photo covers across
+ * its full width.
+ *
+ * Worth putting on screen because it is the one number that makes a bad
+ * calibration obvious at a glance. A two-point fit is exact at both of its
+ * own points no matter how wrong the scale between them is, so the overlay
+ * can look right where you clicked and be badly wrong everywhere else. But
+ * you can see with your own eyes roughly how much of the horizon a photo
+ * shows, and a photo that plainly turns most of the way round reporting
+ * that it covers 72 degrees gives the game away immediately. See #34.
+ */
+export function photoSpanDeg(cal, width) {
+  return Math.abs(cal.aScale) * width;
+}
+
 /** Real azimuth at a pixel column. */
 export function xToAz(cal, x) {
   return normalizeAz(cal.aScale * x + cal.aOffset);
