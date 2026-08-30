@@ -87,6 +87,13 @@
   <button id="useMarkedBtn" style="margin-left:10px; padding:6px 10px; border-radius:6px; border:none; background:#c98a12; color:#fff;">Use these &rarr; click photo twice</button>
 </div>
 
+<p id="importNote" style="display:none; color:#7cf; font-size:0.85rem;">
+  Showing the points from the loaded CSV file. They are not written to
+  this browser's own survey, so nothing you recorded here is overwritten.
+  Points you add or delete now live only on this page: use
+  <strong>Download CSV</strong> before leaving.
+</p>
+
 <p id="noPoints" style="display:none;">
   No recorded points found in this browser -- record some on the survey
   page first, or they were cleared/this is a different browser/device.
@@ -100,7 +107,9 @@
 (function () {
   "use strict";
   const STORAGE_KEY = "horizonSurveyPoints";
-  const CAL_KEY = "horizonSurveyCalibration"; // { pixelFrac, knownAz }
+  // { image: {name, w, h}, aScale, aOffset, eScale, eOffset }. The image
+  // key is what stops a calibration being reused for a different photo.
+  const CAL_KEY = "horizonSurveyCalibration";
 
   const $ = (id) => document.getElementById(id);
   const canvas = $("canvas");
@@ -123,6 +132,17 @@
   let pendingCalTargets = null;
   let selectedPoint = null; // {p, x, y} of the point last clicked, for the label popup
   let addPointMode = false;
+  // True once a CSV has been loaded: the points on screen then belong to
+  // that file, not to this browser's own survey, and must not be written
+  // back over it.
+  let pointsAreImported = false;
+  let imageKey = null;  // identity of the loaded photo, see sameImage()
+  let storedCal = null; // calibration read from storage, applied only if its image matches
+
+  function persistPoints() {
+    if (pointsAreImported) return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(points));
+  }
 
   function loadPoints() {
     try {
@@ -176,9 +196,10 @@
         return;
       }
       points = parsed;
+      pointsAreImported = true;
       selectedPoint = null;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(points));
       $("noPoints").style.display = "none";
+      $("importNote").style.display = "block";
       updateMarkedCalUI();
       draw();
     };
@@ -227,12 +248,24 @@
   function loadCalibration() {
     try {
       const raw = localStorage.getItem(CAL_KEY);
-      if (raw) cal = JSON.parse(raw);
-    } catch (e) { cal = null; }
+      storedCal = raw ? JSON.parse(raw) : null;
+    } catch (e) { storedCal = null; }
   }
 
   function saveCalibration() {
-    localStorage.setItem(CAL_KEY, JSON.stringify(cal));
+    localStorage.setItem(CAL_KEY, JSON.stringify({ ...cal, image: imageKey }));
+  }
+
+  // Name and pixel dimensions alone would call two different photos the
+  // same one whenever they happen to share both, which is exactly what
+  // happens with a phone's own numbering (PANO_0001.jpg) across two
+  // sessions. Size and modification time come free from the File object
+  // and make that collision effectively impossible without reading the
+  // pixels.
+  function sameImage(a, b) {
+    return !!a && !!b &&
+      a.name === b.name && a.w === b.w && a.h === b.h &&
+      a.size === b.size && a.modified === b.modified;
   }
 
   function setStatus(msg, pending) {
@@ -375,8 +408,24 @@
     const url = URL.createObjectURL(file);
     img = new Image();
     img.onload = () => {
-      draw();
-      startCalibration();
+      imageKey = {
+        name: file.name, w: img.naturalWidth, h: img.naturalHeight,
+        size: file.size, modified: file.lastModified,
+      };
+      // A calibration is a pixel-to-degree scale for one specific photo.
+      // Reusing it for another one draws a horizon line that looks
+      // entirely plausible and is wrong, so it is only restored when the
+      // photo it was made for comes back.
+      if (sameImage(storedCal && storedCal.image, imageKey)) {
+        cal = storedCal;
+        draw();
+        setStatus("calibrated (restored for this photo)");
+        $("addPointModeBtn").disabled = false;
+      } else {
+        cal = null;
+        draw();
+        startCalibration();
+      }
       URL.revokeObjectURL(url);
     };
     img.src = url;
@@ -442,7 +491,7 @@
     const i = points.indexOf(selectedPoint.p);
     if (i === -1) return;
     points.splice(i, 1);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(points));
+    persistPoints();
     selectedPoint = null;
     $("deleteSelectedBtn").disabled = true;
     updateMarkedCalUI();
@@ -461,7 +510,7 @@
       if (!cal) { setStatus("calibrate first", true); return; }
       const az = xToAz(x), el = yToEl(y);
       points.push({ az, el, t: new Date().toISOString(), cal: false, source: "photo" });
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(points));
+      persistPoints();
       setStatus("added point: " + az.toFixed(1) + "°/" + el.toFixed(1) + "° -- keep clicking, or turn off Add-point mode when done");
       draw();
       return;
