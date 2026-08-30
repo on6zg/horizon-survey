@@ -119,6 +119,14 @@ for exactly this -- no nginx, no separate certificate tooling, works the
 same way on a Pi and on Windows. It generates its own self-signed
 certificate on first run and serves this folder over HTTPS.
 
+Two things worth knowing before you run it. It serves **every** file in
+the folder to anyone on your network, so don't drop anything private in
+there. And its certificate and private key go to `~/.horizon-survey/`,
+not into the folder being served; the certificate is reissued
+automatically when your LAN address changes, since a certificate that
+doesn't name the address you typed is rejected by every current
+browser.
+
 **Raspberry Pi (or any Linux box):**
 ```bash
 git clone https://github.com/on6zg/horizon-survey.git
