@@ -101,3 +101,111 @@ export function azDelta(a, b) {
 function clamp(v, lo, hi) {
   return v < lo ? lo : (v > hi ? hi : v);
 }
+
+// ---- Panorama calibration ----------------------------------------------
+//
+// A photo carries no compass or scale reference, so the mapping from pixels
+// to angles is derived from two points whose real azimuth and elevation the
+// user supplies:
+//
+//     az = aScale * x + aOffset        el = eScale * y + eOffset
+//
+// The horizontal half of that is well conditioned: the two points are far
+// apart in x because the user is told to spread them out.
+//
+// The vertical half is not. The natural pair of landmarks is two things near
+// the horizon, which leaves only a few pixels of difference in y to divide
+// by, and a fit from those few pixels can be wrong by a factor of two while
+// looking entirely reasonable on screen. So by default the vertical scale is
+// not fitted at all: an equirectangular panorama has the same degrees per
+// pixel on both axes by construction, so it is taken from the horizontal
+// scale, and the two points only set the offset.
+
+/** Minimum separation between the two points, as a fraction of the image. */
+export const MIN_SPREAD_FRACTION = 0.05;
+
+/**
+ * Derive the pixel-to-angle mapping from two points, each `{x, y, az, el}`.
+ *
+ * `verticalScale` is "isotropic" (default, vertical scale taken from the
+ * horizontal one) or "independent" (fitted from the two elevations, for a
+ * photo that has been scaled unevenly). An "independent" request whose
+ * points are too close together vertically falls back to isotropic and
+ * reports why in `warning` rather than returning a scale it cannot support.
+ *
+ * Throws when the two points are too close together horizontally, because
+ * there is then no usable scale to derive at all.
+ */
+export function fitCalibration(p1, p2, { imageWidth, imageHeight, verticalScale = "isotropic" } = {}) {
+  const dx = p2.x - p1.x;
+  const minDx = imageWidth ? MIN_SPREAD_FRACTION * imageWidth : 0;
+  if (dx === 0 || Math.abs(dx) < minDx) {
+    throw new Error("those two points are too close together horizontally to derive a scale from");
+  }
+
+  // Unwrap a pair that straddles north, so 350 to 10 is a 20 degree span
+  // rather than a 340 degree one in the other direction.
+  let az2 = p2.az;
+  if (Math.abs(az2 - p1.az) > 180) az2 += az2 < p1.az ? 360 : -360;
+
+  const aScale = (az2 - p1.az) / dx;
+  const aOffset = p1.az - aScale * p1.x;
+
+  const dy = p2.y - p1.y;
+  const minDy = imageHeight ? MIN_SPREAD_FRACTION * imageHeight : Infinity;
+  let mode = verticalScale;
+  let warning = null;
+  if (mode === "independent" && Math.abs(dy) < minDy) {
+    mode = "isotropic";
+    warning =
+      "those two points are too close together vertically to fit a separate vertical scale; " +
+      "using the horizontal scale for both axes instead";
+  }
+
+  let eScale, eOffset;
+  if (mode === "independent") {
+    eScale = (p2.el - p1.el) / dy;
+    eOffset = p1.el - eScale * p1.y;
+  } else {
+    // Negative because y grows downward while elevation grows upward.
+    eScale = -Math.abs(aScale);
+    // Both points contribute, so one imprecise click is halved rather than
+    // carried whole.
+    eOffset = ((p1.el - eScale * p1.y) + (p2.el - eScale * p2.y)) / 2;
+  }
+
+  return { aScale, aOffset, eScale, eOffset, verticalScale: mode, warning };
+}
+
+/** Real azimuth at a pixel column. */
+export function xToAz(cal, x) {
+  return normalizeAz(cal.aScale * x + cal.aOffset);
+}
+
+/** Real elevation at a pixel row. */
+export function yToEl(cal, y) {
+  return cal.eScale * y + cal.eOffset;
+}
+
+/** Pixel row for an elevation. */
+export function elToY(cal, el) {
+  return (el - cal.eOffset) / cal.eScale;
+}
+
+/**
+ * Pixel column for an azimuth.
+ *
+ * A photo may straddle the 0/360 seam, so the same azimuth has several
+ * candidate columns. Whichever lands inside the photo wins; if none does,
+ * the nearest one is returned and the caller decides whether it is close
+ * enough to draw.
+ */
+export function azToX(cal, az, width) {
+  let best = null, bestOut = Infinity;
+  for (const a of [az, az + 360, az - 360]) {
+    const x = (a - cal.aOffset) / cal.aScale;
+    const out = x < 0 ? -x : (x > width ? x - width : 0);
+    if (out < bestOut) { bestOut = out; best = x; }
+  }
+  return best;
+}

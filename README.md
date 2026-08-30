@@ -72,13 +72,28 @@ uses the points saved by the survey page in that browser's local storage
 this on a different device (e.g. record on your phone, view on a PC).
 
 A photo has no built-in compass/scale reference, so it needs a two-point
-calibration: click two points in the photo spread apart from each other,
-and enter each one's real azimuth and elevation. From those two points
-the tool derives the actual pixel-to-degree scale for that specific
-photo -- no assumption about its projection, width, or field of view.
-If you marked calibration points while surveying (see above), a picker
-appears letting you select which two those were instead of typing
-numbers -- their az/el come from your recorded data.
+calibration: click two points in the photo spread apart **horizontally**,
+and enter each one's real azimuth and elevation. From those the tool
+derives the actual degrees-per-pixel scale for that specific photo,
+rather than guessing a field of view. If you marked calibration points
+while surveying (see above), a picker appears letting you select which
+two those were instead of typing numbers -- their az/el come from your
+recorded data.
+
+The vertical scale is taken from the horizontal one rather than fitted
+separately, which is exact for an equirectangular panorama (the usual
+phone "Photo Sphere") since it has the same degrees per pixel on both
+axes by construction. That is why the two points only have to be spread
+apart horizontally: two landmarks at the same height calibrate just as
+well as two at different heights. If your photo has been scaled unevenly
+so that is no longer true, tick **fit vertical scale separately** before
+calibrating, and pick points well apart vertically too.
+
+What this does assume is that both axes are linear in angle, which is
+what equirectangular means. A cylindrical panorama is linear in azimuth
+but not in elevation, and a rectilinear (ordinary wide-angle) photo is
+linear in neither, so the further off the horizon you read such a photo
+the more the overlay drifts.
 
 Once calibrated:
 - **Click any marker** to see its exact azimuth/elevation in a popup
