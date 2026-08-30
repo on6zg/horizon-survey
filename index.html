@@ -45,7 +45,12 @@
     position: absolute; left: 0; right: 0; bottom: 0;
     padding: 8px 10px max(10px, env(safe-area-inset-bottom));
     background: rgba(10,10,14,.92); border-top: 1px solid #333;
-    max-height: 44vh; display: flex; flex-direction: column;
+    max-height: 26vh; display: flex; flex-direction: column;
+  }
+  #list.collapsed { display: none; }
+  #toggleListBtn {
+    background: none; border: none; color: #9ad; font-size: 0.75rem;
+    padding: 4px 0; text-align: left; width: fit-content;
   }
   .actions { display: flex; gap: 8px; margin-bottom: 6px; }
   .actions button {
@@ -122,17 +127,18 @@
       <button id="clearBtn">Clear</button>
     </div>
     <div id="count">0 points</div>
-    <p style="font-size:0.7rem; color:#c98a12; margin:2px 0 4px;">
-      &#9733; = calibration point -- for the overlay page, mark two landmarks
-      you'll be able to recognize in the panorama photo.
-    </p>
-    <div id="list">
+    <button id="toggleListBtn">Show recorded points list &darr;</button>
+    <div id="list" class="collapsed">
+      <p style="font-size:0.7rem; color:#c98a12; margin:2px 0 4px;">
+        &#9733; = calibration point -- for the overlay page, mark two landmarks
+        you'll be able to recognize in the panorama photo.
+      </p>
       <table>
         <thead><tr><th></th><th>Az</th><th>El</th><th></th></tr></thead>
         <tbody id="listBody"></tbody>
       </table>
+      <a href="overlay.html" style="display:block; text-align:center; margin-top:8px; color:#9ad; font-size:0.85rem;">View on panorama photo &rarr;</a>
     </div>
-    <a href="overlay.html" style="display:block; text-align:center; margin-top:8px; color:#9ad; font-size:0.85rem;">View on panorama photo &rarr;</a>
   </div>
 </div>
 
@@ -182,18 +188,41 @@
     renderList();
   });
 
+  // Debounce: a double-tap (accidental, or a touch event firing twice for
+  // one physical tap -- both happen on phones) within this window after a
+  // successful record is ignored, so one tap can't produce two points.
+  const RECORD_COOLDOWN_MS = 700;
+  let lastRecordAt = 0;
+
   function recordPoint(isCal) {
+    const now = Date.now();
+    if (now - lastRecordAt < RECORD_COOLDOWN_MS) return; // swallow the bounce/double-tap
     if (currentAz === null || currentEl === null) {
       setStatus("no sensor reading yet");
       return;
     }
+    lastRecordAt = now;
     points.push({ az: currentAz, el: currentEl, t: new Date().toISOString(), cal: !!isCal });
     savePoints();
     renderList();
+    flashButton(isCal ? $("calBtn") : $("recordBtn"));
+  }
+
+  function flashButton(btn) {
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Recorded ✓";
+    setTimeout(() => { btn.disabled = false; btn.textContent = original; }, RECORD_COOLDOWN_MS);
   }
 
   $("recordBtn").addEventListener("click", () => recordPoint(false));
   $("calBtn").addEventListener("click", () => recordPoint(true));
+
+  $("toggleListBtn").addEventListener("click", () => {
+    const list = $("list");
+    const collapsed = list.classList.toggle("collapsed");
+    $("toggleListBtn").textContent = collapsed ? "Show recorded points list ↓" : "Hide recorded points list ↑";
+  });
 
   $("clearBtn").addEventListener("click", () => {
     if (points.length && !confirm("Clear all " + points.length + " recorded points?")) return;
