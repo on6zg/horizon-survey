@@ -38,11 +38,14 @@
 <a class="back" href="index.html">&larr; Back to survey</a>
 <h1>Panorama Overlay</h1>
 <p id="hint">
-  Upload a 360&deg; equirectangular panorama photo (e.g. your phone's Photo
-  Sphere mode) taken near the antenna. Then click one point in the photo
-  whose real-world compass bearing you know (a landmark, corner of a
-  building, etc.) to calibrate -- the photo has no built-in compass
-  reference, so this line-up step is required once per photo.
+  Upload a panorama photo taken near the antenna (any width/height --
+  doesn't need to be a full 360&deg; equirectangular sphere; a normal
+  cylindrical panorama works too). Then click <strong>two</strong> points
+  in the photo whose real-world azimuth and elevation you know -- spread
+  them apart in the photo for accuracy -- to calibrate. Two points is what
+  lets this work regardless of the photo's actual angular width/height or
+  lens, since the pixel-to-degree scale is computed from what you enter,
+  not assumed.
   On a different device than the one you recorded points on (e.g.
   viewing here on a PC), load the CSV you downloaded from the survey
   page first.
@@ -80,7 +83,14 @@
 
   let img = null;
   let points = [];
-  let calOffsetDeg = 0; // added to raw pixel-derived azimuth to align to true compass bearing
+  // Linear fit derived from two user-picked (pixel, real-world) points:
+  //   az = aScale * x + aOffset      el = eScale * y + eOffset
+  // No assumption about the photo's total angular width/height or
+  // projection -- this works for a partial/cylindrical pano exactly the
+  // same as a full equirectangular sphere, since the scale comes from
+  // what the user enters, not a guessed FOV.
+  let cal = null; // { aScale, aOffset, eScale, eOffset }
+  let calPoints = []; // pixel clicks collected during calibration, up to 2
   let awaitingCalClick = false;
 
   function loadPoints() {
@@ -125,15 +135,12 @@
   function loadCalibration() {
     try {
       const raw = localStorage.getItem(CAL_KEY);
-      if (raw) {
-        const cal = JSON.parse(raw);
-        calOffsetDeg = cal.offset || 0;
-      }
-    } catch (e) { /* ignore */ }
+      if (raw) cal = JSON.parse(raw);
+    } catch (e) { cal = null; }
   }
 
   function saveCalibration() {
-    localStorage.setItem(CAL_KEY, JSON.stringify({ offset: calOffsetDeg }));
+    localStorage.setItem(CAL_KEY, JSON.stringify(cal));
   }
 
   function setStatus(msg, pending) {
@@ -142,48 +149,60 @@
     el.className = pending ? "pending" : "";
   }
 
+  // Azimuth wraps at 360; a photo might straddle the 0/360 seam (e.g.
+  // spans 300deg through north to 60deg). Try the direct value and both
+  // +-360 wraps, and use whichever lands closest to (or inside) the
+  // photo's actual pixel width.
+  function azToX(az) {
+    const candidates = [az, az + 360, az - 360];
+    let best = null, bestOut = Infinity;
+    for (const a of candidates) {
+      const x = (a - cal.aOffset) / cal.aScale;
+      const out = x < 0 ? -x : (x > canvas.width ? x - canvas.width : 0);
+      if (out < bestOut) { bestOut = out; best = x; }
+    }
+    return best;
+  }
+
+  function elToY(el) {
+    return (el - cal.eOffset) / cal.eScale;
+  }
+
   function draw() {
     if (!img) return;
     canvas.width = img.naturalWidth;
     canvas.height = img.naturalHeight;
     ctx.drawImage(img, 0, 0);
 
-    if (!points.length) return;
+    if (!points.length || !cal) return;
 
-    // az -> x: standard equirectangular, x=0 is azimuth 0 (north) at the
-    // photo's left edge, wrapping at 360. calOffsetDeg shifts this to
-    // match wherever the photo actually starts.
-    // el -> y: assumes full 180deg vertical FOV, y=0 is straight up
-    // (el=+90), y=height is straight down (el=-90).
-    const toXY = (az, el) => {
-      let a = (az + calOffsetDeg) % 360;
-      if (a < 0) a += 360;
-      const x = (a / 360) * canvas.width;
-      const y = ((90 - el) / 180) * canvas.height;
-      return [x, y];
-    };
+    // Points whose pixel position would fall well outside the photo
+    // aren't actually visible in it (partial-coverage pano) -- skip
+    // them rather than draw somewhere meaningless. Small margin (10% of
+    // width) tolerates points right at the edge.
+    const margin = canvas.width * 0.10;
+    const placed = points
+      .map((p) => ({ p, x: azToX(p.az), y: elToY(p.el) }))
+      .filter((pt) => pt.x >= -margin && pt.x <= canvas.width + margin)
+      .sort((a, b) => a.x - b.x);
 
-    const sorted = [...points].sort((p, q) => p.az - q.az);
+    if (!placed.length) {
+      setStatus("none of the recorded points fall within this photo's coverage", true);
+      return;
+    }
 
     ctx.lineWidth = 3;
     ctx.strokeStyle = "rgba(0,255,0,0.85)";
     ctx.beginPath();
-    sorted.forEach((p, i) => {
-      const [x, y] = toXY(p.az, p.el);
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    placed.forEach((pt, i) => {
+      if (i === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
     });
-    // close the loop back to the first point (wraps around 360deg)
-    if (sorted.length > 1) {
-      const [x0, y0] = toXY(sorted[0].az + 360, sorted[0].el);
-      ctx.lineTo(x0, y0);
-    }
     ctx.stroke();
 
     ctx.fillStyle = "#0f0";
-    for (const p of sorted) {
-      const [x, y] = toXY(p.az, p.el);
+    for (const pt of placed) {
       ctx.beginPath();
-      ctx.arc(x, y, 5, 0, Math.PI * 2);
+      ctx.arc(pt.x, pt.y, 5, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -195,8 +214,7 @@
     img = new Image();
     img.onload = () => {
       draw();
-      setStatus("photo loaded -- click a known landmark to calibrate", true);
-      awaitingCalClick = true;
+      startCalibration();
       URL.revokeObjectURL(url);
     };
     img.src = url;
@@ -204,27 +222,65 @@
 
   $("recalBtn").addEventListener("click", () => {
     if (!img) { setStatus("load a photo first", true); return; }
-    awaitingCalClick = true;
-    setStatus("click a known landmark in the photo", true);
+    startCalibration();
   });
+
+  function startCalibration() {
+    calPoints = [];
+    awaitingCalClick = true;
+    setStatus("click a known landmark (1 of 2) -- pick points spread apart for accuracy", true);
+  }
+
+  function finishCalibration() {
+    const [p1, p2] = calPoints;
+    if (p1.x === p2.x || p1.y === p2.y) {
+      setStatus("those two points are too close together (same row/column) -- pick more spread-out points", true);
+      calPoints = [];
+      awaitingCalClick = true;
+      return;
+    }
+    let az1 = p1.az, az2 = p2.az;
+    // unwrap if the two picked points straddle the 0/360 seam
+    if (Math.abs(az2 - az1) > 180) az2 += (az2 < az1) ? 360 : -360;
+
+    const aScale = (az2 - az1) / (p2.x - p1.x);
+    const aOffset = az1 - aScale * p1.x;
+    const eScale = (p2.el - p1.el) / (p2.y - p1.y);
+    const eOffset = p1.el - eScale * p1.y;
+
+    cal = { aScale, aOffset, eScale, eOffset };
+    saveCalibration();
+    awaitingCalClick = false;
+    setStatus("calibrated");
+    draw();
+  }
 
   canvas.addEventListener("click", (e) => {
     if (!awaitingCalClick || !img) return;
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
-    const clickX = (e.clientX - rect.left) * scaleX;
-    const rawAz = (clickX / canvas.width) * 360;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
 
-    const known = prompt("Real-world compass bearing of that point (degrees, 0-360)?");
-    if (known === null || known.trim() === "") { awaitingCalClick = false; setStatus("calibration cancelled"); return; }
-    const knownAz = parseFloat(known);
-    if (isNaN(knownAz)) { setStatus("not a number -- calibration cancelled"); awaitingCalClick = false; return; }
+    const answer = prompt(
+      "Point " + (calPoints.length + 1) + " of 2 -- real-world azimuth,elevation for this spot (e.g. 145,3.5):"
+    );
+    if (answer === null || answer.trim() === "") {
+      setStatus("calibration cancelled"); awaitingCalClick = false; calPoints = []; return;
+    }
+    const parts = answer.split(",").map((s) => parseFloat(s.trim()));
+    if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) {
+      setStatus("couldn't parse that -- expected two numbers like 145,3.5", true);
+      return;
+    }
+    calPoints.push({ x, y, az: parts[0], el: parts[1] });
 
-    calOffsetDeg = knownAz - rawAz;
-    saveCalibration();
-    awaitingCalClick = false;
-    setStatus("calibrated (offset " + calOffsetDeg.toFixed(1) + "°)");
-    draw();
+    if (calPoints.length === 1) {
+      setStatus("click the second known landmark (2 of 2)", true);
+    } else {
+      finishCalibration();
+    }
   });
 
   loadPoints();
