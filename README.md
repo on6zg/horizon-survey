@@ -40,13 +40,17 @@ phone level (aimed at the horizon) and confirm it reads ~0 degrees.
 ## Panorama overlay (`overlay.html`)
 
 Upload a 360&deg; equirectangular panorama photo (e.g. your phone's Photo
-Sphere mode) and it draws your recorded horizon line right on top, using
-the same points saved by the survey page (`localStorage`, same browser/
-device). A panorama photo has no built-in compass reference, so there's a
-one-time calibration step: click any point in the photo whose real-world
-bearing you know (a landmark, a building corner), enter that bearing, and
-everything lines up from there. Recalibrate any time from the button if a
-new photo is loaded.
+Sphere mode) and it draws your recorded horizon line right on top. By
+default it uses the points already saved by the survey page in that
+browser's local storage (same device) -- but you can also load the CSV
+you downloaded from the survey page directly, which is how to view this
+on a different device (e.g. a PC): take the photo and record the survey
+on your phone, download the CSV there, then open this page on your PC
+and load both the photo and the CSV. A panorama photo has no built-in
+compass reference, so there's a one-time calibration step: click any
+point in the photo whose real-world bearing you know (a landmark, a
+building corner), enter that bearing, and everything lines up from
+there. Recalibrate any time from the button if a new photo is loaded.
 
 **Shooting the panorama**: don't stand right against the antenna mast --
 most panorama/Photo-Sphere apps need a clear, unobstructed pivot to

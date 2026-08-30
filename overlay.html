@@ -43,10 +43,18 @@
   whose real-world compass bearing you know (a landmark, corner of a
   building, etc.) to calibrate -- the photo has no built-in compass
   reference, so this line-up step is required once per photo.
+  On a different device than the one you recorded points on (e.g.
+  viewing here on a PC), load the CSV you downloaded from the survey
+  page first.
 </p>
 
 <div id="controls">
-  <input type="file" id="fileInput" accept="image/*">
+  <label style="font-size:0.85rem; color:#ccc;">CSV:
+    <input type="file" id="csvInput" accept=".csv,text/csv">
+  </label>
+  <label style="font-size:0.85rem; color:#ccc;">Photo:
+    <input type="file" id="fileInput" accept="image/*">
+  </label>
   <button id="recalBtn">Recalibrate</button>
   <span id="calStatus">no photo loaded</span>
 </div>
@@ -82,6 +90,37 @@
     } catch (e) { points = []; }
     $("noPoints").style.display = points.length ? "none" : "block";
   }
+
+  function parseCsv(text) {
+    const lines = text.split(/\r?\n/).filter((l) => l.trim().length);
+    const parsed = [];
+    for (const line of lines) {
+      const cols = line.split(",");
+      const az = parseFloat(cols[0]);
+      const el = parseFloat(cols[1]);
+      if (isNaN(az) || isNaN(el)) continue; // skips the header row too
+      parsed.push({ az, el, t: cols[2] || "" });
+    }
+    return parsed;
+  }
+
+  $("csvInput").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const parsed = parseCsv(reader.result);
+      if (!parsed.length) {
+        alert("No valid rows found -- expected azimuth_deg,elevation_deg[,timestamp] per line.");
+        return;
+      }
+      points = parsed;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(points));
+      $("noPoints").style.display = "none";
+      draw();
+    };
+    reader.readAsText(file);
+  });
 
   function loadCalibration() {
     try {
