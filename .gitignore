@@ -1,4 +1,7 @@
 .venv/
 __pycache__/
+# Certificates now live in ~/.horizon-survey/, outside the served folder.
+# These two entries stay so a leftover pair from an older checkout is not
+# committed by accident.
 horizon_survey_cert.pem
 horizon_survey_key.pem
