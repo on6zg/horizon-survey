@@ -235,8 +235,14 @@ export function fitCalibration360(p, { imageWidth, direction = 1 } = {}) {
  * wraparound pair -- cropping to it would discard almost the whole photo.
  */
 export function trimBounds(x1, x2, imageWidth) {
-  const left = Math.min(x1, x2);
-  const width = Math.abs(x2 - x1);
+  // Clamped rather than trusted as-is: a click right at the photo's edge,
+  // plus float rounding, can otherwise put `left + width` a pixel past
+  // imageWidth, which is an out-of-range source rectangle for drawImage --
+  // some engines clip that silently, some throw, and either way it should
+  // never depend on which.
+  const left = Math.max(0, Math.min(x1, x2));
+  const right = Math.min(imageWidth, Math.max(x1, x2));
+  const width = right - left;
   if (width < 0.5 * imageWidth) {
     throw new Error("those two clicks are too close together to be a 360° span");
   }

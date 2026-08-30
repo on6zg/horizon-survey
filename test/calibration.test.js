@@ -183,6 +183,17 @@ test("trimBounds spans exactly between the two clicks, regardless of click order
   assert.deepEqual(trimBounds(5500, 500, 6000), { left: 500, width: 5000 });
 });
 
+test("trimBounds clamps to the photo instead of returning an out-of-range rectangle", () => {
+  // A click right at the edge plus float rounding can put a coordinate a
+  // little outside [0, imageWidth]; the result must still fit inside it.
+  const b1 = trimBounds(-3, 5990, 6000);
+  assert.equal(b1.left, 0);
+  assert.ok(b1.left + b1.width <= 6000, `left+width ${b1.left + b1.width} exceeds imageWidth`);
+
+  const b2 = trimBounds(10, 6005, 6000);
+  assert.ok(b2.left + b2.width <= 6000, `left+width ${b2.left + b2.width} exceeds imageWidth`);
+});
+
 test("a span far narrower than the photo is refused as a mis-click, not silently cropped", () => {
   assert.throws(() => trimBounds(1000, 1200, 6000), /too close together/i);
 });

@@ -475,9 +475,17 @@ import {
   // exactly one non-repeating sweep. See trimBounds() in geometry.js.
   function performTrim() {
     const [c1, c2] = trimClicks;
+    // Click coordinates are display-canvas pixels, which may already be
+    // shrunk (MAX_CANVAS_WIDTH). Crop the original photo at its own full
+    // resolution instead of the displayed canvas -- that avoids downscaling
+    // twice, and avoids baking in whatever markers happen to be drawn on
+    // screen at trim time (the displayed canvas can have a calibrated
+    // horizon line and points on top of the photo; the source image never
+    // does).
+    const toNatural = img.naturalWidth / canvas.width;
     let bounds;
     try {
-      bounds = trimBounds(c1.x, c2.x, canvas.width);
+      bounds = trimBounds(c1.x * toNatural, c2.x * toNatural, img.naturalWidth);
     } catch (err) {
       setStatus(err.message + " -- click the same landmark's two appearances, not two nearby spots", true);
       trimming = false;
@@ -486,13 +494,25 @@ import {
     }
     const trimCanvas = document.createElement("canvas");
     trimCanvas.width = bounds.width;
-    trimCanvas.height = canvas.height;
+    trimCanvas.height = img.naturalHeight;
     trimCanvas.getContext("2d")
-      .drawImage(canvas, bounds.left, 0, bounds.width, canvas.height, 0, 0, bounds.width, canvas.height);
+      .drawImage(img, bounds.left, 0, bounds.width, img.naturalHeight, 0, 0, bounds.width, img.naturalHeight);
     trimCanvas.toBlob((blob) => {
+      if (!blob) {
+        setStatus("could not create the trimmed image -- the photo may be too large for this device", true);
+        trimming = false;
+        trimClicks = [];
+        return;
+      }
       trimmedBlob = blob;
       const url = URL.createObjectURL(blob);
       const newImg = new Image();
+      newImg.onerror = () => {
+        setStatus("could not load the trimmed image back -- try again, or a smaller photo", true);
+        URL.revokeObjectURL(url);
+        trimming = false;
+        trimClicks = [];
+      };
       newImg.onload = () => {
         img = newImg;
         // A new photo, distinct from whatever was loaded before -- forces
