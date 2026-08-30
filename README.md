@@ -151,7 +151,12 @@ situation, just your own phone talking to your own laptop/Pi on your
 own network. `Ctrl+C` stops the server -- no persistent install needed
 for a one-off site survey.
 
+## Contributing
+
+Bug reports and pull requests are welcome. `CONTRIBUTING.md` covers how
+to send one and how the review works; `AGENTS.md` has the rules for
+changing the code itself.
+
 ## License
 
-No formal license file yet -- personal/amateur-radio use, forking, and PRs
-are welcome.
+MIT, see `LICENSE`.
