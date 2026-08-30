@@ -127,6 +127,14 @@ automatically when your LAN address changes, since a certificate that
 doesn't name the address you typed is rejected by every current
 browser.
 
+**Upgrading from an earlier version**: that version wrote its key into
+this folder, which is the folder it publishes, so anyone on your network
+could download it. Delete `horizon_survey_cert.pem` and
+`horizon_survey_key.pem` from here if they are still lying around; a
+fresh pair is generated in `~/.horizon-survey/` on the next run. Nothing
+deletes them for you, and an abandoned key sitting in a served directory
+stays downloadable for as long as you keep running a server there.
+
 **Raspberry Pi (or any Linux box):**
 ```bash
 git clone https://github.com/on6zg/horizon-survey.git
