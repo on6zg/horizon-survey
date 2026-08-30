@@ -105,6 +105,39 @@ well as two at different heights. If your photo has been scaled unevenly
 so that is no longer true, tick **fit vertical scale separately** before
 calibrating, and pick points well apart vertically too.
 
+**A pitfall with two widely-spread calibration points.** Two azimuths on
+their own don't say which way around the circle they're apart -- 109&deg;
+to 359&deg; could be a 110&deg; gap or a 250&deg; one. The tool always
+picks the shorter one, which is the right guess when your two points are
+naturally close together, and the wrong one if you deliberately spread
+them far apart on a photo that itself covers most of a full circle: the
+fit then comes out with a scale that looks fine near your two points and
+drifts further wrong the closer you get to the photo's edges. If your
+photo has visible overlap (the same feature appears near both the left
+and right edges), use one of the two options below instead of a normal
+two-point calibration.
+
+**Photo covers exactly 360&deg;.** Tick this and calibration needs only
+**one** point -- the scale is fixed at 360&deg; / photo width instead of
+derived from two azimuths, so there's no wraparound direction to get
+wrong. Only accurate for a genuine closed-loop capture (a proper "Photo
+Sphere," or a photo trimmed with the tool below), and needs one more
+thing you have to tell it: whether azimuth increases or decreases moving
+left to right across the photo (**azimuth decreases left&rarr;right**,
+unticked by default, covers a sweep panned the other way).
+
+**Trim overlap&hellip;** For an ordinary sweep-panorama app (no Photo
+Sphere mode) that leaves visible overlap at the seam: click the same
+landmark twice -- once where it first appears, once where it appears
+again -- and the photo is cropped to exactly the span between those two
+clicks, discarding the repeated portion. What's left covers exactly one
+sweep with nothing duplicated, ready for the exactly-360&deg; calibration
+above. **Download trimmed photo** saves the cropped result so you don't
+have to re-trim every time you reopen it. Trimming clears the current
+calibration (the pixel positions all changed) but keeps your recorded
+points, since those are already in real-world azimuth/elevation and
+don't depend on the photo at all.
+
 Like the survey page, this page has to be **served** rather than opened
 from disk: both import `geometry.js` as a module, and browsers block
 module imports over `file://`. Unlike the survey page it does not need

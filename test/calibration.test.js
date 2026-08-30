@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { fitCalibration, azToX, xToAz, elToY, yToEl } from "../geometry.js";
+import { fitCalibration, fitCalibration360, trimBounds, azToX, xToAz, elToY, yToEl } from "../geometry.js";
 
 const close = (actual, expected, tol, what) =>
   assert.ok(Math.abs(actual - expected) <= tol, `${what}: got ${actual}, expected ~${expected}`);
@@ -124,4 +124,65 @@ test("every fit that is returned produces finite pixels", () => {
     assert.ok(Number.isFinite(azToX(cal, 123, PANO.imageWidth)), "azToX finite");
     assert.ok(Number.isFinite(elToY(cal, 5)), "elToY finite");
   }
+});
+
+// ---- fitCalibration360 ---------------------------------------------------
+//
+// The bug this exists for: two calibration points spread genuinely wide
+// apart on a near-360 photo (109 and 359 degrees, a real ~250 degree span
+// along the photo) get silently folded to the "short way" (110 degrees) by
+// fitCalibration()'s wraparound unwrap, which always picks whichever gap is
+// under 180 degrees. That gives a scale roughly half of, and opposite in
+// sign region to, the true one -- correct-looking near the calibration
+// points, increasingly wrong toward the edges.
+
+test("the scale is fixed at 360/width, not derived from the point at all", () => {
+  const cal = fitCalibration360({ x: 500, y: 200, az: 145, el: 3 }, { imageWidth: 6000 });
+  close(cal.aScale, 360 / 6000, 1e-9, "aScale");
+});
+
+test("the single point round-trips through its own calibration exactly", () => {
+  const p = { x: 500, y: 200, az: 145, el: 3 };
+  const cal = fitCalibration360(p, { imageWidth: 6000 });
+  close(xToAz(cal, p.x), p.az, 1e-9, "az at the calibration point");
+  close(yToEl(cal, p.y), p.el, 1e-9, "el at the calibration point");
+});
+
+test("direction flips which way azimuth runs across the photo", () => {
+  const p = { x: 500, y: 200, az: 145, el: 3 };
+  const forward = fitCalibration360(p, { imageWidth: 6000, direction: 1 });
+  const reverse = fitCalibration360(p, { imageWidth: 6000, direction: -1 });
+  assert.ok(forward.aScale > 0, "default direction increases left to right");
+  assert.ok(reverse.aScale < 0, "reverse direction decreases left to right");
+  // Both still pass through the same calibration point regardless.
+  close(xToAz(forward, p.x), p.az, 1e-9, "forward still hits the point");
+  close(xToAz(reverse, p.x), p.az, 1e-9, "reverse still hits the point");
+});
+
+test("a wide-apart pair that fitCalibration mis-scales is exact with fitCalibration360", () => {
+  // Same shape as the real report: two landmarks a genuine ~250 degrees
+  // apart along a 6000 px photo, at x=1000 (az 109) and x=5083 (az 359,
+  // i.e. -1, reached by sweeping the long way round from 109).
+  const width = 6000;
+  const trueScale = 250 / (5083 - 1000); // the real degrees/px this photo has
+  const p1 = { x: 1000, y: 300, az: 109, el: 5 };
+
+  const wide = fitCalibration(p1, { x: 5083, y: 300, az: 359, el: 5 }, { imageWidth: width });
+  // fitCalibration folds 109->359 to the short way (110 degrees), so it does
+  // not recover the true ~250 degree scale.
+  assert.ok(Math.abs(Math.abs(wide.aScale) - trueScale) > 0.01, "fitCalibration should NOT match the true scale here");
+
+  const fixed = fitCalibration360(p1, { imageWidth: width });
+  close(Math.abs(fixed.aScale), 360 / width, 1e-9, "fitCalibration360 uses the photo width directly");
+});
+
+// ---- trimBounds -----------------------------------------------------------
+
+test("trimBounds spans exactly between the two clicks, regardless of click order", () => {
+  assert.deepEqual(trimBounds(500, 5500, 6000), { left: 500, width: 5000 });
+  assert.deepEqual(trimBounds(5500, 500, 6000), { left: 500, width: 5000 });
+});
+
+test("a span far narrower than the photo is refused as a mis-click, not silently cropped", () => {
+  assert.throws(() => trimBounds(1000, 1200, 6000), /too close together/i);
 });

@@ -192,6 +192,57 @@ export function fitCalibration(p1, p2, { imageWidth, imageHeight, verticalScale 
   return { aScale, aOffset, eScale, eOffset, verticalScale: mode, warning };
 }
 
+/**
+ * Derive the pixel-to-angle mapping from a single point, for a photo known
+ * to cover exactly 360 degrees end to end -- a proper closed-loop capture
+ * (e.g. a phone's "Photo Sphere" mode), not a sweep panorama with overlap.
+ *
+ * fitCalibration() has no way to tell, from two azimuths alone, which way
+ * around the circle they are apart: 109 to 359 could be a 110 degree gap or
+ * a 250 degree one, and it always picks the shorter one. That is the right
+ * guess for two calibration points that are naturally close together, and
+ * the wrong one if they are deliberately spread wide apart on a photo whose
+ * true span is itself wide -- the fit then silently comes out with the
+ * wrong scale, correct-looking in the middle of the photo and increasingly
+ * wrong toward the edges, which is exactly where a wide pair is chosen for.
+ *
+ * Fixing the scale at 360/imageWidth sidesteps the question entirely: there
+ * is only one point, so no pair of azimuths to disagree about.
+ *
+ * `direction` is 1 if azimuth increases left-to-right across the photo (a
+ * sweep panned clockwise, the common case), -1 if it decreases. Nothing
+ * about a single point can tell them apart, so it has to be supplied.
+ */
+export function fitCalibration360(p, { imageWidth, direction = 1 } = {}) {
+  const aScale = direction * 360 / imageWidth;
+  const aOffset = p.az - aScale * p.x;
+  // Same isotropic reasoning as fitCalibration()'s default: an equirectangular
+  // photo has the same degrees per pixel on both axes.
+  const eScale = -Math.abs(aScale);
+  const eOffset = p.el - eScale * p.y;
+  return { aScale, aOffset, eScale, eOffset, verticalScale: "isotropic", warning: null };
+}
+
+/**
+ * Pixel bounds for cropping a "same landmark, seen twice" pair of clicks
+ * down to exactly one non-repeating sweep -- the two clicks mark where a
+ * single real-world direction appears at the start and again at the end of
+ * a photo whose capture overshot 360 degrees, so the span between them is,
+ * by definition, one full revolution with nothing left over.
+ *
+ * Throws when the span is far narrower than the photo itself, since that is
+ * a mis-click (or the same appearance clicked twice) rather than a genuine
+ * wraparound pair -- cropping to it would discard almost the whole photo.
+ */
+export function trimBounds(x1, x2, imageWidth) {
+  const left = Math.min(x1, x2);
+  const width = Math.abs(x2 - x1);
+  if (width < 0.5 * imageWidth) {
+    throw new Error("those two clicks are too close together to be a 360° span");
+  }
+  return { left: Math.round(left), width: Math.round(width) };
+}
+
 /** Real azimuth at a pixel column. */
 export function xToAz(cal, x) {
   return normalizeAz(cal.aScale * x + cal.aOffset);

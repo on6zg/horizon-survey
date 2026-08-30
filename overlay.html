@@ -67,12 +67,20 @@
     <input type="file" id="fileInput" accept="image/*">
   </label>
   <button id="recalBtn">Manual calibration</button>
+  <button id="trimBtn">Trim overlap&hellip;</button>
+  <button id="downloadTrimmedBtn" style="display:none;">Download trimmed photo</button>
   <button id="addPointModeBtn" disabled>Add point from photo: OFF</button>
   <button id="deleteSelectedBtn" disabled style="background:#a33;">Delete selected point</button>
   <button id="downloadCsvBtn">Download CSV</button>
   <button id="downloadJsonBtn">Download JSON</button>
   <button id="downloadImgBtn">Download image</button>
-  <label style="font-size:0.8rem; color:#ccc;" title="Off (recommended): the vertical scale is taken from the horizontal one, which is exact for an equirectangular panorama. On: the vertical scale is fitted from your two elevations, for a photo that has been scaled unevenly.">
+  <label style="font-size:0.8rem; color:#ccc;" title="Only for a photo that is a genuine closed-loop 360 capture (a proper Photo Sphere, or one trimmed with the button above) -- not a sweep panorama with overlap. Fixes the scale at 360/width instead of deriving it from two azimuths, so calibration needs only one point and there is no wraparound ambiguity to get wrong.">
+    <input type="checkbox" id="fixed360"> photo covers exactly 360&deg;
+  </label>
+  <label id="reverseDirLabel" style="font-size:0.8rem; color:#ccc; display:none;">
+    <input type="checkbox" id="reverseDirection"> azimuth decreases left&rarr;right
+  </label>
+  <label id="independentVerticalLabel" style="font-size:0.8rem; color:#ccc;" title="Off (recommended): the vertical scale is taken from the horizontal one, which is exact for an equirectangular panorama. On: the vertical scale is fitted from your two elevations, for a photo that has been scaled unevenly.">
     <input type="checkbox" id="independentVertical"> fit vertical scale separately
   </label>
   <span id="calStatus">no photo loaded</span>
@@ -88,7 +96,7 @@
 <div id="markedCalBox" style="display:none; padding:10px; background:#16161c; border-radius:8px; margin:0 0 10px; font-size:0.85rem;">
   <div style="color:#c98a12; margin-bottom:6px;">&#9733; Use marked calibration points (no typing needed):</div>
   <label>Point 1: <select id="calSelect1"></select></label>
-  <label style="margin-left:10px;">Point 2: <select id="calSelect2"></select></label>
+  <label id="calSelect2Label" style="margin-left:10px;">Point 2: <select id="calSelect2"></select></label>
   <button id="useMarkedBtn" style="margin-left:10px; padding:6px 10px; border-radius:6px; border:none; background:#c98a12; color:#fff;">Use these &rarr; click photo twice</button>
 </div>
 
@@ -111,7 +119,9 @@
 <script type="module">
 // ?v= is a cache buster: bump it in the same commit as any geometry.js
 // change, so a browser holding an old copy cannot pair it with a new page.
-import { fitCalibration, azToX, xToAz, elToY, yToEl, toHorizonProfile } from "./geometry.js?v=4";
+import {
+  fitCalibration, fitCalibration360, trimBounds, azToX, xToAz, elToY, yToEl, toHorizonProfile,
+} from "./geometry.js?v=5";
 
 (function () {
   "use strict";
@@ -150,6 +160,9 @@ import { fitCalibration, azToX, xToAz, elToY, yToEl, toHorizonProfile } from "./
   let pointsAreImported = false;
   let imageKey = null;  // identity of the loaded photo, see sameImage()
   let storedCal = null; // calibration read from storage, applied only if its image matches
+  let trimming = false; // collecting the two "same landmark, seen twice" clicks
+  let trimClicks = [];
+  let trimmedBlob = null; // the clean cropped photo, for Download trimmed photo
 
   function persistPoints() {
     if (pointsAreImported) return;
@@ -449,35 +462,127 @@ import { fitCalibration, azToX, xToAz, elToY, yToEl, toHorizonProfile } from "./
     startCalibration();
   });
 
+  $("trimBtn").addEventListener("click", () => {
+    if (!img) { setStatus("load a photo first", true); return; }
+    awaitingCalClick = false;
+    trimming = true;
+    trimClicks = [];
+    setStatus("click the same landmark where it first appears, near the left edge (1 of 2)", true);
+  });
+
+  // The two clicks mark one real-world direction that appears twice because
+  // the photo's capture overshot 360 degrees -- everything between them is
+  // exactly one non-repeating sweep. See trimBounds() in geometry.js.
+  function performTrim() {
+    const [c1, c2] = trimClicks;
+    let bounds;
+    try {
+      bounds = trimBounds(c1.x, c2.x, canvas.width);
+    } catch (err) {
+      setStatus(err.message + " -- click the same landmark's two appearances, not two nearby spots", true);
+      trimming = false;
+      trimClicks = [];
+      return;
+    }
+    const trimCanvas = document.createElement("canvas");
+    trimCanvas.width = bounds.width;
+    trimCanvas.height = canvas.height;
+    trimCanvas.getContext("2d")
+      .drawImage(canvas, bounds.left, 0, bounds.width, canvas.height, 0, 0, bounds.width, canvas.height);
+    trimCanvas.toBlob((blob) => {
+      trimmedBlob = blob;
+      const url = URL.createObjectURL(blob);
+      const newImg = new Image();
+      newImg.onload = () => {
+        img = newImg;
+        // A new photo, distinct from whatever was loaded before -- forces
+        // recalibration rather than restoring a calibration made for the
+        // untrimmed original.
+        imageKey = {
+          name: (imageKey ? imageKey.name : "photo") + "-trimmed",
+          w: img.naturalWidth, h: img.naturalHeight, size: blob.size, modified: Date.now(),
+        };
+        cal = null;
+        trimming = false;
+        trimClicks = [];
+        $("addPointModeBtn").disabled = true;
+        $("downloadTrimmedBtn").style.display = "inline";
+        draw();
+        setStatus(
+          "trimmed to " + bounds.width + "px, should now be exactly 360° -- calibrate again "
+          + "(tick \"photo covers exactly 360°\" above for a one-point calibration)",
+          true,
+        );
+        URL.revokeObjectURL(url);
+      };
+      newImg.src = url;
+    }, "image/png");
+  }
+
+  $("downloadTrimmedBtn").addEventListener("click", () => {
+    if (!trimmedBlob) { setStatus("nothing trimmed yet", true); return; }
+    const url = URL.createObjectURL(trimmedBlob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "horizon_survey_trimmed_" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".png";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
+
+  $("fixed360").addEventListener("change", () => {
+    const on = $("fixed360").checked;
+    $("reverseDirLabel").style.display = on ? "inline" : "none";
+    $("calSelect2Label").style.display = on ? "none" : "inline";
+    $("independentVerticalLabel").style.display = on ? "none" : "inline";
+  });
+
   $("useMarkedBtn").addEventListener("click", () => {
     if (!img) { setStatus("load a photo first", true); return; }
     const marked = points.filter((p) => p.cal);
     const i1 = parseInt($("calSelect1").value, 10);
-    const i2 = parseInt($("calSelect2").value, 10);
-    if (i1 === i2) { setStatus("pick two different points", true); return; }
-    pendingCalTargets = [marked[i1], marked[i2]];
+    if ($("fixed360").checked) {
+      pendingCalTargets = [marked[i1]];
+    } else {
+      const i2 = parseInt($("calSelect2").value, 10);
+      if (i1 === i2) { setStatus("pick two different points", true); return; }
+      pendingCalTargets = [marked[i1], marked[i2]];
+    }
     calPoints = [];
     awaitingCalClick = true;
-    setStatus("click where " + marked[i1].az.toFixed(1) + "°/" + marked[i1].el.toFixed(1) + "° is in the photo (1 of 2)", true);
+    const n = pendingCalTargets.length;
+    setStatus("click where " + marked[i1].az.toFixed(1) + "°/" + marked[i1].el.toFixed(1) + "° is in the photo"
+      + (n > 1 ? " (1 of 2)" : ""), true);
   });
 
   function startCalibration() {
     pendingCalTargets = null;
     calPoints = [];
     awaitingCalClick = true;
-    setStatus("click a known landmark (1 of 2) -- pick points spread apart for accuracy", true);
+    if ($("fixed360").checked) {
+      setStatus("click one known landmark -- this photo is assumed to cover exactly 360°", true);
+    } else {
+      setStatus("click a known landmark (1 of 2) -- pick points spread apart for accuracy", true);
+    }
   }
 
   function finishCalibration() {
-    const [p1, p2] = calPoints;
     try {
-      cal = fitCalibration(p1, p2, {
-        imageWidth: canvas.width,
-        imageHeight: canvas.height,
-        verticalScale: $("independentVertical").checked ? "independent" : "isotropic",
-      });
+      if ($("fixed360").checked) {
+        cal = fitCalibration360(calPoints[0], {
+          imageWidth: canvas.width,
+          direction: $("reverseDirection").checked ? -1 : 1,
+        });
+      } else {
+        cal = fitCalibration(calPoints[0], calPoints[1], {
+          imageWidth: canvas.width,
+          imageHeight: canvas.height,
+          verticalScale: $("independentVertical").checked ? "independent" : "isotropic",
+        });
+      }
     } catch (err) {
-      setStatus(err.message + " -- pick two points further apart", true);
+      setStatus(err.message + " -- pick points further apart", true);
       calPoints = [];
       awaitingCalClick = true;
       return;
@@ -515,6 +620,16 @@ import { fitCalibration, azToX, xToAz, elToY, yToEl, toHorizonProfile } from "./
     const x = (e.clientX - rect.left) * scaleX;
     const y = (e.clientY - rect.top) * scaleY;
 
+    if (trimming) {
+      trimClicks.push({ x, y });
+      if (trimClicks.length === 1) {
+        setStatus("now click the same landmark where it appears again, near the right edge (2 of 2)", true);
+      } else {
+        performTrim();
+      }
+      return;
+    }
+
     if (addPointMode && !awaitingCalClick) {
       if (!cal) { setStatus("calibrate first", true); return; }
       const az = xToAz(cal, x), el = yToEl(cal, y);
@@ -538,17 +653,19 @@ import { fitCalibration, azToX, xToAz, elToY, yToEl, toHorizonProfile } from "./
       // az/el already known from the selected marked points -- no prompt.
       const target = pendingCalTargets[calPoints.length];
       calPoints.push({ x, y, az: target.az, el: target.el });
-      if (calPoints.length === 1) {
-        const next = pendingCalTargets[1];
-        setStatus("click where " + next.az.toFixed(1) + "°/" + next.el.toFixed(1) + "° is in the photo (2 of 2)", true);
+      if (calPoints.length < pendingCalTargets.length) {
+        const next = pendingCalTargets[calPoints.length];
+        setStatus("click where " + next.az.toFixed(1) + "°/" + next.el.toFixed(1) + "° is in the photo ("
+          + (calPoints.length + 1) + " of " + pendingCalTargets.length + ")", true);
       } else {
         finishCalibration();
       }
       return;
     }
 
+    const needed = $("fixed360").checked ? 1 : 2;
     const answer = prompt(
-      "Point " + (calPoints.length + 1) + " of 2 -- real-world azimuth,elevation for this spot (e.g. 145,3.5):"
+      "Point " + (calPoints.length + 1) + " of " + needed + " -- real-world azimuth,elevation for this spot (e.g. 145,3.5):"
     );
     if (answer === null || answer.trim() === "") {
       setStatus("calibration cancelled"); awaitingCalClick = false; calPoints = []; return;
@@ -560,7 +677,7 @@ import { fitCalibration, azToX, xToAz, elToY, yToEl, toHorizonProfile } from "./
     }
     calPoints.push({ x, y, az: parts[0], el: parts[1] });
 
-    if (calPoints.length === 1) {
+    if (calPoints.length < needed) {
       setStatus("click the second known landmark (2 of 2)", true);
     } else {
       finishCalibration();
