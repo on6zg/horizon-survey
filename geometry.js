@@ -288,3 +288,48 @@ export function median(values) {
   const mid = sorted.length >> 1;
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
+
+// ---- Export -------------------------------------------------------------
+
+/**
+ * Build the horizon_profile.json that vk5dj-tracker's sky plot reads, so
+ * the CSV does not have to be run through a conversion script first.
+ *
+ * Calibration points are dropped: those are aimed at a landmark you can
+ * recognise in a panorama photo, not at the top of an obstruction, so
+ * feeding them in as horizon data puts the line somewhere nothing is
+ * blocking. Points clicked on a photo are kept, because they are real
+ * obstruction readings, but they keep a `source` key so a reader can still
+ * tell them apart from sensor measurements.
+ *
+ * Throws when nothing is left to export.
+ */
+export function toHorizonProfile(points, { note = null } = {}) {
+  const measured = points.filter((p) => !p.cal);
+  if (!measured.length) throw new Error("no measured points to export (calibration points are not horizon data)");
+
+  const out = measured
+    .map((p) => {
+      const row = { az: round2(p.az), el: round2(p.el) };
+      if (p.source && p.source !== "sensor") row.source = p.source;
+      return row;
+    })
+    .sort((a, b) => a.az - b.az);
+
+  const stamps = measured.map((p) => p.t).filter(Boolean).sort();
+  const fromPhoto = measured.filter((p) => p.source === "photo").length;
+
+  return {
+    surveyed_at: stamps.length ? stamps[0].slice(0, 10) : null,
+    note:
+      note ||
+      `Elevation-only obstruction survey (buildings, trees, terrain): ${out.length} points` +
+        (fromPhoto ? `, ${fromPhoto} read off a photo rather than measured with the phone` : "") +
+        ". Tree lines may sit considerably lower in winter. Not a hard safety limit.",
+    points: out,
+  };
+}
+
+function round2(v) {
+  return Math.round(v * 100) / 100;
+}

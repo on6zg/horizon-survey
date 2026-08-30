@@ -39,6 +39,15 @@ real compass on your own phone, see Compass heading below.
    `azimuth_deg,elevation_deg,timestamp,is_calibration,source` rows you
    can open in a spreadsheet or feed into other tools.
 
+   **Download JSON** gives the same survey as a `horizon_profile.json`,
+   which is what [vk5dj-tracker](https://github.com/on6zg/vk5dj-tracker)
+   reads for its sky-plot horizon overlay; drop it straight into that
+   project's `vk5dj_tracker/static/` and no conversion step is needed.
+   Calibration points are left out of it, since those are aimed at a
+   landmark rather than at the top of an obstruction. Points you added
+   from a photo are kept and keep a `source` key so they stay
+   distinguishable.
+
 Points are also saved to the browser's local storage as you go, so an
 accidental reload mid-survey doesn't lose your progress -- but the CSV
 download is the actual durable copy; don't rely on browser storage

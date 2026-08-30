@@ -130,6 +130,7 @@
     </div>
     <div class="actions">
       <button id="downloadBtn">Download CSV</button>
+      <button id="downloadJsonBtn">Download JSON</button>
       <button id="clearBtn">Clear</button>
     </div>
     <div id="count">0 points</div>
@@ -151,7 +152,9 @@
 <script type="module">
 // ?v= is a cache buster: bump it in the same commit as any geometry.js
 // change, so a browser holding an old copy cannot pair it with a new page.
-import { orientationToAzEl, circularMeanDeg, circularSpreadDeg, median, recentSamples } from "./geometry.js?v=4";
+import {
+  orientationToAzEl, circularMeanDeg, circularSpreadDeg, median, recentSamples, toHorizonProfile,
+} from "./geometry.js?v=4";
 
 (function () {
   "use strict";
@@ -265,15 +268,29 @@ import { orientationToAzEl, circularMeanDeg, circularSpreadDeg, median, recentSa
     const sorted = [...points].sort((a, b) => a.az - b.az);
     let csv = "azimuth_deg,elevation_deg,timestamp,is_calibration,source\n";
     for (const p of sorted) csv += `${p.az.toFixed(2)},${p.el.toFixed(2)},${p.t},${p.cal ? 1 : 0},sensor\n`;
-    const blob = new Blob([csv], { type: "text/csv" });
+    download(csv, "text/csv", "horizon_survey", "csv");
+  });
+
+  function download(text, mime, base, ext) {
+    const blob = new Blob([text], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "horizon_survey_" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".csv";
+    a.download = base + "_" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + "." + ext;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  }
+
+  // horizon_profile.json is what vk5dj-tracker's sky plot reads directly,
+  // so exporting it here removes the conversion step.
+  $("downloadJsonBtn").addEventListener("click", () => {
+    try {
+      download(JSON.stringify(toHorizonProfile(points), null, 2), "application/json", "horizon_profile", "json");
+    } catch (err) {
+      setStatus(err.message);
+    }
   });
 
   function setStatus(msg) { $("status").textContent = msg || ""; }
