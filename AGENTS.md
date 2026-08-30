@@ -16,15 +16,19 @@ testing on a phone. No backend, no accounts, no telemetry.
 | `geometry.js` | every angle calculation both pages share, pure functions |
 | `serve_https.py` | optional local HTTPS server for phone testing |
 | `test/` | `node --test` suite for `geometry.js` |
+| `test/browser/` | the same runner driving both pages in Chromium |
 
 Constraints that are deliberate. Trading one away is allowed, but say so
 explicitly in the PR rather than in passing:
 
 - **No build step.** The pages are served as they are. No bundler, no
   transpiler, no framework.
-- **No runtime dependencies.** `package.json` exists only so `node --test`
-  can import `geometry.js` as an ES module; `npm install` installs
-  nothing. `serve_https.py` needs `cryptography` and nothing else.
+- **No runtime dependencies.** Nothing the pages load comes from a
+  package, and that is the part not to trade away. There is one
+  devDependency, Playwright, for the browser tests in `test/browser/`; a
+  clone without it still runs `npm test` in full and those tests skip
+  themselves rather than fail. `serve_https.py` needs `cryptography` and
+  nothing else.
 - **No backend.** Points live in the browser's local storage and in the
   CSV the user downloads. Nothing is uploaded, ever, and both pages say
   so on screen.
@@ -46,6 +50,9 @@ formula that ignored device roll and a calibration fit that silently
 doubled the elevation scale, and neither was visible by reading the page.
 
 **Verify before claiming done.** Run `npm test` and confirm green output.
+With Playwright installed that includes the browser tests, which are where
+a change that is correct in `geometry.js` but wired up wrongly gets
+caught.
 "This works" is a claim about something you ran; if you did not run it,
 write what you did not run instead. Nothing here can test the camera, the
 compass, or a real phone, so any change to those paths ships untested by

@@ -3,8 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Tests for the shared geometry used by index.html and overlay.html. The pages themselves need no build step and no dependencies; this file exists so `node --test` can import geometry.js as an ES module.",
+  "description": "Test setup for horizon-survey. The pages themselves need no build step and load nothing from a package; this file marks the repo as ESM so node can import geometry.js, and carries the one devDependency the browser tests need.",
   "scripts": {
     "test": "node --test"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
   }
 }

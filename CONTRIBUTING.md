@@ -32,7 +32,14 @@ tilted" is worth more than a patch, because it can be turned into a test.
    ```bash
    npm test          # or: node --test
    ```
-   There is nothing to install. `package.json` has no dependencies.
+   There is nothing to install for the unit tests. The browser tests in
+   `test/browser/` need Playwright and skip themselves without it. To run
+   those too:
+   ```bash
+   npm install --include=dev
+   npx playwright install chromium
+   npm test
+   ```
 6. Commit, push to your fork, then open a pull request against
    `on6zg/horizon-survey` `master`.
 
