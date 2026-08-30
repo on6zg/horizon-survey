@@ -76,6 +76,15 @@ To review it:
   branch into a single commit on `master`, which is usually what you want
   for a small fix. Both are reversible: GitHub offers a Revert button
   afterwards.
+- **Not for a stack, though.** When several pull requests are chained,
+  each branched off the one before it rather than off `master`, squash the
+  first and you have rewritten the commits the others are built on. Their
+  changes are then already in `master` under different hashes, and every
+  one after it has to be merged three-way by hand. Use **Merge pull
+  request** for a chain, in the order the branches were built, so each
+  parent's commits become ancestors of its children and the rest go in
+  cleanly. A pull request that is part of a chain should say so and name
+  what it goes after.
 - Not merging is also an answer. Say why and close it.
 
 Whatever you decide, **say it on the pull request** rather than only in
