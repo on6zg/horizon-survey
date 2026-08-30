@@ -18,18 +18,26 @@ tilted" is worth more than a patch, because it can be turned into a test.
 
 ## Sending a change
 
-1. Fork the repo (Fork button, top right of the GitHub page).
-2. Branch from `master`, named for what it does: `fix/zoom-label`,
+1. Open an issue first, unless one already exists. The order is
+   **problem or feature -> issue -> PR**: the issue is where the problem
+   and the agreed scope get written down before any code exists, so the
+   pull request has a traceable reason to exist and the scope does not
+   drift while you work.
+2. Fork the repo (Fork button, top right of the GitHub page).
+3. Branch from `master`, named for what it does: `fix/zoom-label`,
    `feat/declination-setting`, `chore/readme-hosting`.
-3. Make the change. Read `AGENTS.md` first, particularly the rule that
+4. Make the change. Read `AGENTS.md` first, particularly the rule that
    angle maths lives in `geometry.js` with a test.
-4. Run the tests:
+5. Run the tests:
    ```bash
    npm test          # or: node --test
    ```
    There is nothing to install. `package.json` has no dependencies.
-5. Commit, push to your fork, then open a pull request against
+6. Commit, push to your fork, then open a pull request against
    `on6zg/horizon-survey` `master`.
+
+Put `Closes #<n>` in the pull request description so merging it closes
+the issue automatically.
 
 Keep one topic per pull request. Two unrelated fixes in one branch means
 neither can be merged until both are agreed on.
