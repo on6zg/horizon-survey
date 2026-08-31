@@ -14,6 +14,7 @@ testing on a phone. No backend, no accounts, no telemetry.
 | `index.html` | survey page: camera, sensors, record points |
 | `overlay.html` | panorama page: draw recorded points on a photo |
 | `geometry.js` | every angle calculation both pages share, pure functions |
+| `debug.js` | packaging a diagnostic bundle, pure functions |
 | `serve_https.py` | optional local HTTPS server for phone testing |
 | `test/` | `node --test` suite for `geometry.js` |
 | `test/browser/` | the same runner driving both pages in Chromium |

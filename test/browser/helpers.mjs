@@ -145,3 +145,33 @@ function pngChunk(type, data) {
   crc.writeUInt32BE(zlib.crc32(typed));
   return Buffer.concat([len, typed, crc]);
 }
+
+// Minimal ZIP reading, so a browser test can look inside a downloaded debug
+// bundle. Deliberately not importing debug.js: a test that reads with the
+// same code that wrote would agree with itself about a mistake.
+function zipEntries(buf) {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const end = buf.length - 22;
+  if (dv.getUint32(end, true) !== 0x06054b50) throw new Error("not a zip (no end-of-central-directory)");
+  const count = dv.getUint16(end + 10, true);
+  let at = dv.getUint32(end + 16, true);
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const nameLen = dv.getUint16(at + 28, true);
+    const name = new TextDecoder().decode(buf.subarray(at + 46, at + 46 + nameLen));
+    const size = dv.getUint32(at + 24, true);
+    const localAt = dv.getUint32(at + 42, true);
+    const dataAt = localAt + 30 + dv.getUint16(localAt + 26, true) + dv.getUint16(localAt + 28, true);
+    out.push({ name, data: buf.subarray(dataAt, dataAt + size) });
+    at += 46 + nameLen + dv.getUint16(at + 30, true) + dv.getUint16(at + 32, true);
+  }
+  return out;
+}
+
+export const readZipNames = (buf) => zipEntries(buf).map((e) => e.name);
+
+export function readZipEntry(buf, name) {
+  const entry = zipEntries(buf).find((e) => e.name === name);
+  if (!entry) throw new Error(`no ${name} in the bundle, found: ${readZipNames(buf).join(", ")}`);
+  return new TextDecoder().decode(entry.data);
+}

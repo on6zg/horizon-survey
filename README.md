@@ -196,6 +196,36 @@ recorded horizon-line data comes from your walk-around survey, not the
 photo, so it stays accurate there regardless of what the photo shows in
 that slice.
 
+## Reporting a problem
+
+Both pages have a **Send debug** button. It does not send anything: a
+browser cannot attach a file to an email, and this tool has no server to
+do it for it. What it does is collect everything into one `.zip` that you
+can attach to a
+[GitHub issue](https://github.com/on6zg/horizon-survey/issues) or to a
+mail yourself.
+
+The survey page's bundle holds your points, what device and browser you
+are on, and **the raw orientation events exactly as the browser delivered
+them**. That last part is the reason the button exists: it is the only
+record of what the sensor actually said rather than what the maths made
+of it, and it is the difference between a compass with a constant offset
+and one being pulled around by something nearby. Neither of those is
+visible in a CSV.
+
+The overlay page's bundle holds your points, the calibration and the span
+it implies, and **the photo exactly as you picked it, bytes untouched**.
+The original file matters more than a re-saved copy: a Photo Sphere
+records its own projection and how many degrees it covers in its
+metadata, which says outright whether the pixel-to-degree assumptions
+hold for your photo.
+
+**That also means the bundle carries whatever the camera wrote into the
+photo, which on most phones includes where it was taken.** Open the zip
+and look before you attach it anywhere; `debug.json` is plain text and
+the photo is the file you already have. Strip the metadata first, or send
+it privately, if you would rather not publish your site's location.
+
 ## Camera zoom
 
 Uses real hardware zoom if the browser/device exposes it (`MediaTrackCapabilities.zoom`),
