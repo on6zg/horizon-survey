@@ -21,9 +21,9 @@ real compass on your own phone, see Compass heading below.
 2. Tap **Start**, grant camera and motion-sensor permission.
 3. Aim the crosshair at the top edge of an obstruction in some direction
    (use the zoom controls if it's small/distant), tap **Record point**.
-   Use **Mark calibration point** instead for a couple of landmarks
+   Use **Mark calibration point** instead for three or more landmarks
    you'll recognize in a panorama photo later (shown starred in the
-   list) -- see Panorama overlay below for why.
+   list) -- see Panorama overlay below for why three.
 4. Repeat every 10-30 degrees of azimuth as you walk/turn around the
    site. A short cooldown after each tap (with a "Recorded" confirmation
    on the button) stops an accidental double-tap from recording the same
@@ -87,19 +87,29 @@ uses the points saved by the survey page in that browser's local storage
 (same device) -- or load the CSV you downloaded, which is how to view
 this on a different device (e.g. record on your phone, view on a PC).
 
-A photo has no built-in compass/scale reference, so it needs a two-point
-calibration: click two points in the photo spread apart **horizontally**,
-and enter each one's real azimuth and elevation. From those the tool
-derives the actual degrees-per-pixel scale for that specific photo,
-rather than guessing a field of view. If you marked calibration points
-while surveying (see above), a picker appears letting you select which
-two those were instead of typing numbers -- their az/el come from your
-recorded data.
+A photo has no built-in compass/scale reference, so it needs calibrating:
+click points in the photo spread apart **horizontally** whose real
+azimuth and elevation are known. From those the tool derives the actual
+degrees-per-pixel scale for that specific photo, rather than guessing a
+field of view. Typed in by hand that is two points. If you marked
+calibration points while surveying (see above), a list appears instead:
+tick the ones you can find in the photo and click each where it appears,
+and the fit runs over all of them (least squares) with their az/el taken
+from your recorded data.
+
+Three or more marked points do two things two cannot. They settle which
+way round the photo goes (the pitfall below), and the page lists, per
+point, how far the fit puts it from where it was recorded. Two points
+always fit exactly, so that list only says something from the third
+point on. The pattern across the points is the diagnosis: residuals that
+grow the further a point sits from the others mean the scale is off,
+residuals with no order to them mean the compass was disturbed where you
+stood.
 
 The vertical scale is taken from the horizontal one rather than fitted
 separately, which is exact for an equirectangular panorama (the usual
 phone "Photo Sphere") since it has the same degrees per pixel on both
-axes by construction. That is why the two points only have to be spread
+axes by construction. That is why the points only have to be spread
 apart horizontally: two landmarks at the same height calibrate just as
 well as two at different heights. If your photo has been scaled unevenly
 so that is no longer true, tick **fit vertical scale separately** before
@@ -107,8 +117,8 @@ calibrating, and pick points well apart vertically too.
 
 After calibrating, the status line reports **how much of the horizon the
 photo covers** according to that calibration. That number is the sanity
-check worth looking at every time: the fit is exact at the two points you
-clicked no matter how wrong the scale between them is, so a bad
+check worth looking at every time: a two-point fit is exact at both points
+you clicked no matter how wrong the scale between them is, so a bad
 calibration looks right where you looked and is wrong everywhere else.
 You can see with your own eyes roughly how far round a photo turns, so if
 a photo that plainly covers most of the horizon reports 72&deg;, the
@@ -116,15 +126,17 @@ calibration is wrong and the next paragraph is why.
 
 **A pitfall with two widely-spread calibration points.** Two azimuths on
 their own don't say which way around the circle they're apart -- 109&deg;
-to 359&deg; could be a 110&deg; gap or a 250&deg; one. The tool always
-picks the shorter one, which is the right guess when your two points are
-naturally close together, and the wrong one if you deliberately spread
-them far apart on a photo that itself covers most of a full circle: the
-fit then comes out with a scale that looks fine near your two points and
-drifts further wrong the closer you get to the photo's edges. If your
-photo has visible overlap (the same feature appears near both the left
-and right edges), use one of the two options below instead of a normal
-two-point calibration.
+to 359&deg; could be a 110&deg; gap or a 250&deg; one. With only two
+points the tool picks the shorter one, which is the right guess when
+your two points are naturally close together, and the wrong one if you
+deliberately spread them far apart on a photo that itself covers most of
+a full circle: the fit then comes out with a scale that looks fine near
+your two points and drifts further wrong the closer you get to the
+photo's edges. A third marked point settles it: both ways round are
+fitted and the one that puts every point nearest where it was recorded
+wins. With only two points, keep them less than half a turn apart in
+azimuth, or, if your photo has visible overlap (the same feature appears
+near both the left and right edges), use one of the two options below.
 
 **Photo covers exactly 360&deg;.** Tick this and calibration needs only
 **one** point -- the scale is fixed at 360&deg; / photo width instead of

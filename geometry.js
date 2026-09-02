@@ -105,13 +105,13 @@ function clamp(v, lo, hi) {
 // ---- Panorama calibration ----------------------------------------------
 //
 // A photo carries no compass or scale reference, so the mapping from pixels
-// to angles is derived from two points whose real azimuth and elevation the
-// user supplies:
+// to angles is derived from points whose real azimuth and elevation the user
+// supplies:
 //
 //     az = aScale * x + aOffset        el = eScale * y + eOffset
 //
-// The horizontal half of that is well conditioned: the two points are far
-// apart in x because the user is told to spread them out.
+// The horizontal half of that is well conditioned: the points are far apart
+// in x because the user is told to spread them out.
 //
 // The vertical half is not. The natural pair of landmarks is two things near
 // the horizon, which leaves only a few pixels of difference in y to divide
@@ -119,59 +119,92 @@ function clamp(v, lo, hi) {
 // looking entirely reasonable on screen. So by default the vertical scale is
 // not fitted at all: an equirectangular panorama has the same degrees per
 // pixel on both axes by construction, so it is taken from the horizontal
-// scale, and the two points only set the offset.
+// scale, and the points only set the offset.
 
-/** Minimum separation between the two points, as a fraction of the image. */
+/** Minimum separation between the points, as a fraction of the image. */
 export const MIN_SPREAD_FRACTION = 0.05;
 
 /**
- * Derive the pixel-to-angle mapping from two points, each `{x, y, az, el}`.
+ * Derive the pixel-to-angle mapping from two or more points, each
+ * `{x, y, az, el}`, by least squares.
+ *
+ * Two azimuths do not say which way round the circle they are apart: 109
+ * to 359 could be a 110 degree gap or a 250 degree one. With exactly two
+ * points nothing can settle that, so the fit takes the shorter way, which
+ * is right for two landmarks that are naturally close together and wrong
+ * for two deliberately spread wide apart on a photo that itself covers
+ * most of a circle. From three points on, both ways round are fitted and
+ * the one that puts every point closest to where it was recorded wins.
+ * See #34.
+ *
+ * `residuals` holds, per point and in input order, how far the fit puts it
+ * from where it was recorded (fit minus recorded, in degrees). With two
+ * points that is zero by construction; with more it is the number that
+ * says whether the calibration is any good.
  *
  * `verticalScale` is "isotropic" (default, vertical scale taken from the
- * horizontal one) or "independent" (fitted from the two elevations, for a
+ * horizontal one) or "independent" (fitted from the elevations, for a
  * photo that has been scaled unevenly). An "independent" request whose
  * points are too close together vertically falls back to isotropic and
  * reports why in `warning` rather than returning a scale it cannot support.
  *
- * Throws when the two points are too close together horizontally, because
+ * Throws when the points are too close together horizontally, because
  * there is then no usable scale to derive at all.
  */
-export function fitCalibration(p1, p2, { imageWidth, imageHeight, verticalScale = "isotropic" } = {}) {
-  const dx = p2.x - p1.x;
+export function fitCalibration(points, { imageWidth, imageHeight, verticalScale = "isotropic" } = {}) {
+  const xs = points.map((p) => p.x);
+  const left = points[xs.indexOf(Math.min(...xs))];
+  const right = points[xs.indexOf(Math.max(...xs))];
+  const dx = right.x - left.x;
   const minDx = imageWidth ? MIN_SPREAD_FRACTION * imageWidth : 0;
-  if (dx === 0 || Math.abs(dx) < minDx) {
-    throw new Error("those two points are too close together horizontally to derive a scale from");
+  if (dx === 0 || dx < minDx) {
+    throw new Error("those points are too close together horizontally to derive a scale from");
   }
 
-  // Unwrap a pair that straddles north, so 350 to 10 is a 20 degree span
-  // rather than a 340 degree one in the other direction.
-  let az2 = p2.az;
-  if (Math.abs(az2 - p1.az) > 180) az2 += az2 < p1.az ? 360 : -360;
-
-  const aScale = (az2 - p1.az) / dx;
+  // The two outermost points fix the two candidate ways round. Under each
+  // one, every other point is unwrapped to the turn of the circle nearest
+  // its predicted azimuth, so a point recorded a few degrees off does not
+  // get folded a whole turn away.
+  const gap = normalizeAz(right.az - left.az);
+  const shortWay = gap <= 180 ? gap : gap - 360;
+  const longWay = shortWay > 0 ? shortWay - 360 : shortWay + 360;
+  let best = null;
+  for (const way of [shortWay, longWay]) {
+    const guess = way / dx;
+    const guessOffset = left.az - guess * left.x;
+    const unwrapped = points.map((p) => p.az + 360 * Math.round((guess * p.x + guessOffset - p.az) / 360));
+    const { slope, intercept } = leastSquares(xs, unwrapped);
+    const residuals = points.map((p) => azDelta(p.az, slope * p.x + intercept));
+    const score = residuals.reduce((sum, r) => sum + r * r, 0);
+    // Strictly better only: with two points both ways are exact and the
+    // shorter one, tried first, is the documented guess.
+    if (!best || score < best.score - 1e-9) best = { slope, intercept, residuals, score };
+  }
+  const aScale = best.slope;
   if (!Number.isFinite(aScale) || aScale === 0) {
-    // Two points at the same azimuth give a zero scale, which every pixel
+    // Points all at the same azimuth give a zero scale, which every pixel
     // conversion then divides by. The markers would all land off-canvas and
     // the horizon line would simply not appear, while the status still said
     // "calibrated". Refusing is the only honest answer.
-    throw new Error("those two points have the same azimuth, so there is no horizontal scale to derive");
+    throw new Error("those points have the same azimuth, so there is no horizontal scale to derive");
   }
-  const aOffset = p1.az - aScale * p1.x;
+  const aOffset = best.intercept;
 
-  const dy = p2.y - p1.y;
+  const ys = points.map((p) => p.y);
+  const dy = Math.max(...ys) - Math.min(...ys);
   const minDy = imageHeight ? MIN_SPREAD_FRACTION * imageHeight : Infinity;
   let mode = verticalScale;
   let warning = null;
   let fitted = null;
   if (mode === "independent") {
-    fitted = (p2.el - p1.el) / dy;
-    if (Math.abs(dy) < minDy) {
+    fitted = leastSquares(ys, points.map((p) => p.el));
+    if (dy < minDy) {
       warning =
-        "those two points are too close together vertically to fit a separate vertical scale; " +
+        "those points are too close together vertically to fit a separate vertical scale; " +
         "using the horizontal scale for both axes instead";
-    } else if (!Number.isFinite(fitted) || fitted === 0) {
+    } else if (!Number.isFinite(fitted.slope) || fitted.slope === 0) {
       warning =
-        "those two points have the same elevation, so a separate vertical scale cannot be fitted; " +
+        "those points have the same elevation, so a separate vertical scale cannot be fitted; " +
         "using the horizontal scale for both axes instead";
     }
     if (warning) mode = "isotropic";
@@ -179,17 +212,32 @@ export function fitCalibration(p1, p2, { imageWidth, imageHeight, verticalScale 
 
   let eScale, eOffset;
   if (mode === "independent") {
-    eScale = fitted;
-    eOffset = p1.el - eScale * p1.y;
+    eScale = fitted.slope;
+    eOffset = fitted.intercept;
   } else {
     // Negative because y grows downward while elevation grows upward.
     eScale = -Math.abs(aScale);
-    // Both points contribute, so one imprecise click is halved rather than
-    // carried whole.
-    eOffset = ((p1.el - eScale * p1.y) + (p2.el - eScale * p2.y)) / 2;
+    // Every point contributes, so one imprecise click is shared out rather
+    // than carried whole.
+    eOffset = points.reduce((sum, p) => sum + (p.el - eScale * p.y), 0) / points.length;
   }
 
-  return { aScale, aOffset, eScale, eOffset, verticalScale: mode, warning };
+  const residuals = points.map((p, i) => ({ az: best.residuals[i], el: eScale * p.y + eOffset - p.el }));
+  return { aScale, aOffset, eScale, eOffset, verticalScale: mode, warning, residuals };
+}
+
+/** Ordinary least-squares line through (xs[i], ys[i]). */
+function leastSquares(xs, ys) {
+  const n = xs.length;
+  const mx = xs.reduce((s, v) => s + v, 0) / n;
+  const my = ys.reduce((s, v) => s + v, 0) / n;
+  let sxx = 0, sxy = 0;
+  for (let i = 0; i < n; i++) {
+    sxx += (xs[i] - mx) * (xs[i] - mx);
+    sxy += (xs[i] - mx) * (ys[i] - my);
+  }
+  const slope = sxy / sxx;
+  return { slope, intercept: my - slope * mx };
 }
 
 /**
@@ -197,14 +245,16 @@ export function fitCalibration(p1, p2, { imageWidth, imageHeight, verticalScale 
  * to cover exactly 360 degrees end to end -- a proper closed-loop capture
  * (e.g. a phone's "Photo Sphere" mode), not a sweep panorama with overlap.
  *
- * fitCalibration() has no way to tell, from two azimuths alone, which way
- * around the circle they are apart: 109 to 359 could be a 110 degree gap or
- * a 250 degree one, and it always picks the shorter one. That is the right
- * guess for two calibration points that are naturally close together, and
- * the wrong one if they are deliberately spread wide apart on a photo whose
- * true span is itself wide -- the fit then silently comes out with the
- * wrong scale, correct-looking in the middle of the photo and increasingly
- * wrong toward the edges, which is exactly where a wide pair is chosen for.
+ * fitCalibration() cannot tell, from two azimuths alone, which way around
+ * the circle they are apart: 109 to 359 could be a 110 degree gap or a 250
+ * degree one, and with only two points it picks the shorter one. That is
+ * the right guess for two calibration points that are naturally close
+ * together, and the wrong one if they are deliberately spread wide apart on
+ * a photo whose true span is itself wide -- the fit then silently comes out
+ * with the wrong scale, correct-looking in the middle of the photo and
+ * increasingly wrong toward the edges, which is exactly where a wide pair
+ * is chosen for. A third point lets fitCalibration() settle it; this mode
+ * is for when there is only one.
  *
  * Fixing the scale at 360/imageWidth sidesteps the question entirely: there
  * is only one point, so no pair of azimuths to disagree about.
