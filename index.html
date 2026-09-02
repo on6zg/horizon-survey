@@ -140,8 +140,8 @@
     <button id="toggleListBtn">Show recorded points list &darr;</button>
     <div id="list" class="collapsed">
       <p style="font-size:0.7rem; color:#c98a12; margin:2px 0 4px;">
-        &#9733; = calibration point -- for the overlay page, mark two landmarks
-        you'll be able to recognize in the panorama photo.
+        &#9733; = calibration point -- for the overlay page, mark three or
+        more landmarks you'll be able to recognize in the panorama photo.
       </p>
       <table>
         <thead><tr><th></th><th>Az</th><th>El</th><th></th></tr></thead>
@@ -157,7 +157,7 @@
 // change, so a browser holding an old copy cannot pair it with a new page.
 import {
   orientationToAzEl, circularMeanDeg, circularSpreadDeg, median, recentSamples, toHorizonProfile,
-} from "./geometry.js?v=7";
+} from "./geometry.js?v=8";
 import { buildZip, debugBundle, pointsToCsv } from "./debug.js?v=1";
 
 // Where "Send debug" offers to mail the bundle. Left empty on purpose: this

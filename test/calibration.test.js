@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { fitCalibration, fitCalibration360, trimBounds, photoSpanDeg, azToX, xToAz, elToY, yToEl } from "../geometry.js";
+import { fitCalibration, fitCalibration360, trimBounds, photoSpanDeg, azToX, xToAz, elToY, yToEl, normalizeAz } from "../geometry.js";
 
 const close = (actual, expected, tol, what) =>
   assert.ok(Math.abs(actual - expected) <= tol, `${what}: got ${actual}, expected ~${expected}`);
@@ -18,7 +18,7 @@ const NEAR_HORIZON = [
 ];
 
 test("two landmarks at the same height still give a usable elevation scale", () => {
-  const cal = fitCalibration(...NEAR_HORIZON, PANO);
+  const cal = fitCalibration(NEAR_HORIZON, PANO);
   // 200 px above the horizon on this photo is 200 * 0.06 = 12 degrees up.
   // Fitting the vertical scale from a 3 px difference gave 28.7 here.
   close(yToEl(cal, 1300), 14.0, 0.2, "elevation 200 px above the first point");
@@ -27,25 +27,24 @@ test("two landmarks at the same height still give a usable elevation scale", () 
 });
 
 test("the horizontal scale is unaffected by the vertical model", () => {
-  const cal = fitCalibration(...NEAR_HORIZON, PANO);
+  const cal = fitCalibration(NEAR_HORIZON, PANO);
   close(cal.aScale, 0.06, 1e-9, "aScale");
   close(xToAz(cal, 100), 100, 1e-9, "az back at the first point");
   close(xToAz(cal, 700), 136, 1e-9, "az back at the second point");
 });
 
 test("an independent vertical fit is available when the points support one", () => {
-  const cal = fitCalibration(
+  const cal = fitCalibration([
     { x: 100, y: 500, az: 100, el: 20 },
     { x: 700, y: 2500, az: 136, el: -10 },
-    { ...PANO, verticalScale: "independent" },
-  );
+  ], { ...PANO, verticalScale: "independent" });
   assert.equal(cal.verticalScale, "independent");
   assert.equal(cal.warning, null);
   close(cal.eScale, -0.015, 1e-9, "eScale");
 });
 
 test("an independent fit falls back rather than magnifying a 3 px difference", () => {
-  const cal = fitCalibration(...NEAR_HORIZON, { ...PANO, verticalScale: "independent" });
+  const cal = fitCalibration(NEAR_HORIZON, { ...PANO, verticalScale: "independent" });
   assert.equal(cal.verticalScale, "isotropic");
   assert.match(cal.warning, /too close together vertically/i);
   close(yToEl(cal, 1300), 14.0, 0.2, "elevation falls back to the isotropic answer");
@@ -53,22 +52,21 @@ test("an independent fit falls back rather than magnifying a 3 px difference", (
 
 test("two points too close together horizontally cannot be fitted at all", () => {
   assert.throws(
-    () => fitCalibration({ x: 100, y: 500, az: 100, el: 2 }, { x: 140, y: 2500, az: 101, el: 2 }, PANO),
+    () => fitCalibration([{ x: 100, y: 500, az: 100, el: 2 }, { x: 140, y: 2500, az: 101, el: 2 }], PANO),
     /horizontally/i,
   );
 });
 
 test("a pair straddling north is unwrapped instead of read as a 340 degree span", () => {
-  const cal = fitCalibration(
+  const cal = fitCalibration([
     { x: 100, y: 1500, az: 350, el: 2 },
     { x: 700, y: 1500, az: 10, el: 2 },
-    PANO,
-  );
+  ], PANO);
   close(cal.aScale, 20 / 600, 1e-9, "aScale across the seam");
 });
 
 test("pixel and angle conversions are inverses of each other", () => {
-  const cal = fitCalibration(...NEAR_HORIZON, PANO);
+  const cal = fitCalibration(NEAR_HORIZON, PANO);
   for (const x of [0, 250, 1000, 3000, 5999]) {
     close(azToX(cal, xToAz(cal, x), PANO.imageWidth), x, 1e-6, `x roundtrip at ${x}`);
   }
@@ -80,13 +78,13 @@ test("pixel and angle conversions are inverses of each other", () => {
 test("azToX picks the wrap that lands inside the photo", () => {
   // This photo runs from az 100 at x=100 to az 460 (= 100) at x=6100, so
   // an azimuth of 20 degrees is only inside it as 380.
-  const cal = fitCalibration(...NEAR_HORIZON, PANO);
+  const cal = fitCalibration(NEAR_HORIZON, PANO);
   const x = azToX(cal, 20, PANO.imageWidth);
   assert.ok(x >= 0 && x <= PANO.imageWidth, `expected a pixel inside the photo, got ${x}`);
 });
 
 test("elevation grows upward, so the vertical scale is negative", () => {
-  const cal = fitCalibration(...NEAR_HORIZON, PANO);
+  const cal = fitCalibration(NEAR_HORIZON, PANO);
   assert.ok(cal.eScale < 0, `eScale should be negative, got ${cal.eScale}`);
   assert.ok(yToEl(cal, 1000) > yToEl(cal, 2000), "higher in the photo must mean higher elevation");
 });
@@ -97,21 +95,19 @@ test("two points with the same azimuth are refused, not silently scaled to zero"
   // and the whole line would vanish while the status still read
   // "calibrated".
   assert.throws(
-    () => fitCalibration(
+    () => fitCalibration([
       { x: 100, y: 500, az: 145, el: 2 },
       { x: 4000, y: 2500, az: 145, el: 20 },
-      PANO,
-    ),
+    ], PANO),
     /same azimuth/i,
   );
 });
 
 test("an independent fit refuses two identical elevations too", () => {
-  const cal = fitCalibration(
+  const cal = fitCalibration([
     { x: 100, y: 500, az: 100, el: 3 },
     { x: 700, y: 2500, az: 136, el: 3 },
-    { ...PANO, verticalScale: "independent" },
-  );
+  ], { ...PANO, verticalScale: "independent" });
   assert.equal(cal.verticalScale, "isotropic");
   assert.match(cal.warning, /same elevation/i);
   assert.ok(Number.isFinite(cal.eScale) && cal.eScale !== 0, `eScale was ${cal.eScale}`);
@@ -120,7 +116,7 @@ test("an independent fit refuses two identical elevations too", () => {
 
 test("every fit that is returned produces finite pixels", () => {
   for (const opts of [PANO, { ...PANO, verticalScale: "independent" }]) {
-    const cal = fitCalibration(...NEAR_HORIZON, opts);
+    const cal = fitCalibration(NEAR_HORIZON, opts);
     assert.ok(Number.isFinite(azToX(cal, 123, PANO.imageWidth)), "azToX finite");
     assert.ok(Number.isFinite(elToY(cal, 5)), "elToY finite");
   }
@@ -167,7 +163,7 @@ test("a wide-apart pair that fitCalibration mis-scales is exact with fitCalibrat
   const trueScale = 250 / (5083 - 1000); // the real degrees/px this photo has
   const p1 = { x: 1000, y: 300, az: 109, el: 5 };
 
-  const wide = fitCalibration(p1, { x: 5083, y: 300, az: 359, el: 5 }, { imageWidth: width });
+  const wide = fitCalibration([p1, { x: 5083, y: 300, az: 359, el: 5 }], { imageWidth: width });
   // fitCalibration folds 109->359 to the short way (110 degrees), so it does
   // not recover the true ~250 degree scale.
   assert.ok(Math.abs(Math.abs(wide.aScale) - trueScale) > 0.01, "fitCalibration should NOT match the true scale here");
@@ -200,11 +196,10 @@ test("a span far narrower than the photo is refused as a mis-click, not silently
 
 test("the calibration says how much of the horizon the photo covers", () => {
   // 6000 px at 0.06 deg/px is a full rotation.
-  const cal = fitCalibration(
+  const cal = fitCalibration([
     { x: 500, y: 1500, az: 100, el: 2 },
     { x: 1500, y: 1500, az: 160, el: 2 },
-    PANO,
-  );
+  ], PANO);
   close(photoSpanDeg(cal, 6000), 360, 1e-9, "span of a full-rotation photo");
 });
 
@@ -213,11 +208,10 @@ test("a mis-scaled calibration reports a span that gives it away", () => {
   // fit takes the 60 degree short way, so the span it reports is nowhere
   // near what the photo obviously shows. That is the whole point of
   // putting the number on screen.
-  const cal = fitCalibration(
+  const cal = fitCalibration([
     { x: 500, y: 1500, az: 109, el: 2 },
     { x: 5500, y: 1500, az: 49, el: 2 },
-    PANO,
-  );
+  ], PANO);
   close(photoSpanDeg(cal, 6000), 72, 0.001, "span from the mis-scaled fit");
 });
 
@@ -229,4 +223,103 @@ test("the span is a magnitude, so a right-to-left photo reports a positive one",
 test("the fixed-360 mode reports 360 by construction", () => {
   const cal = fitCalibration360({ x: 100, y: 500, az: 20, el: 3 }, { imageWidth: 3000 });
   close(photoSpanDeg(cal, 3000), 360, 1e-9, "span in fixed-360 mode");
+});
+
+// ---- fitCalibration over more than two points -----------------------------
+//
+// Two azimuths cannot say which way round the circle they are apart, and a
+// two-point fit has to guess (it takes the shorter way). A third point breaks
+// the tie: whichever way round puts every point closest to where it was
+// recorded is the way the photo actually goes. See #34.
+
+// A 6000 px photo that truly covers 360 degrees: 0.06 deg/px, az 100 at x=0,
+// horizon at y=1500.
+const FULL = { imageWidth: 6000, imageHeight: 3000 };
+const trueAz = (x) => normalizeAz(100 + 0.06 * x);
+const at = (x, el = 2) => ({ x, y: 1500 - el / 0.06, az: trueAz(x), el });
+
+test("three points spread most of the way round recover the true scale", () => {
+  // Extremes 300 degrees apart, which a two-point fit reads as 60 the short
+  // way (the mis-scaled span test above). Only the long way round puts the
+  // middle point where it was recorded.
+  const cal = fitCalibration([at(500), at(3000), at(5500)], FULL);
+  close(cal.aScale, 0.06, 1e-9, "aScale");
+  close(photoSpanDeg(cal, 6000), 360, 1e-6, "span");
+});
+
+test("every point's residual is reported, in the order the points were given", () => {
+  const cal = fitCalibration([at(500), at(3000), at(5500)], FULL);
+  assert.equal(cal.residuals.length, 3);
+  for (const r of cal.residuals) {
+    close(r.az, 0, 1e-9, "azimuth residual of an exact point");
+    close(r.el, 0, 1e-9, "elevation residual of an exact point");
+  }
+});
+
+test("a point recorded off its true bearing shows up as that point's residual", () => {
+  // The middle point's compass read 6 degrees high. The fit no longer passes
+  // through all three, and the residual (where the fit puts a point minus
+  // where it was recorded) says which one is off and by how much: the
+  // least-squares line lifts by 2 everywhere, so the middle point sits 4
+  // above it and the other two 2 below.
+  const pts = [at(500), { ...at(3000), az: trueAz(3000) + 6 }, at(5500)];
+  const cal = fitCalibration(pts, FULL);
+  close(cal.residuals[0].az, 2, 1e-6, "residual of an exact point");
+  close(cal.residuals[1].az, -4, 1e-6, "residual of the point that read high");
+  close(cal.residuals[2].az, 2, 1e-6, "residual of the other exact point");
+});
+
+test("compass noise on every point is absorbed rather than flipping the fit the wrong way round", () => {
+  const noise = [3, -4, 2, -3, 4];
+  const xs = [200, 1500, 2800, 4200, 5600];
+  const pts = xs.map((x, i) => ({ ...at(x), az: normalizeAz(trueAz(x) + noise[i]) }));
+  const cal = fitCalibration(pts, FULL);
+  close(cal.aScale, 0.06, 0.002, "aScale under +-4 degree noise");
+  for (const r of cal.residuals) assert.ok(Math.abs(r.az) < 6, `residual ${r.az} is larger than the noise that caused it`);
+});
+
+test("two points still take the shorter way round, since nothing can break that tie", () => {
+  const cal = fitCalibration([at(500), at(5500)], FULL);
+  close(photoSpanDeg(cal, 6000), 72, 1e-6, "span from the two-point fit");
+  for (const r of cal.residuals) close(r.az, 0, 1e-9, "two points are always exact");
+});
+
+test("points are fitted whatever order they are given in", () => {
+  const cal = fitCalibration([at(5500), at(500), at(3000)], FULL);
+  close(cal.aScale, 0.06, 1e-9, "aScale");
+});
+
+test("a photo with azimuth decreasing left to right fits with a negative scale", () => {
+  const mirrored = (x) => ({ x, y: 1500, az: normalizeAz(100 - 0.06 * x), el: 2 });
+  const cal = fitCalibration([mirrored(500), mirrored(3000), mirrored(5500)], FULL);
+  close(cal.aScale, -0.06, 1e-9, "aScale");
+});
+
+test("three points straddling north are unwrapped like two", () => {
+  const cal = fitCalibration([
+    { x: 100, y: 1500, az: 350, el: 2 },
+    { x: 400, y: 1500, az: 8, el: 2 },
+    { x: 700, y: 1500, az: 26, el: 2 },
+  ], PANO);
+  close(cal.aScale, 0.06, 1e-9, "aScale across the seam");
+});
+
+test("an independent vertical fit uses every point's elevation", () => {
+  const cal = fitCalibration([
+    { x: 100, y: 500, az: 100, el: 20 },
+    { x: 700, y: 1500, az: 136, el: 5 },
+    { x: 1300, y: 2500, az: 172, el: -10 },
+  ], { ...PANO, verticalScale: "independent" });
+  assert.equal(cal.verticalScale, "independent");
+  close(cal.eScale, -0.015, 1e-9, "eScale");
+  for (const r of cal.residuals) close(r.el, 0, 1e-9, "elevation residual");
+});
+
+test("the horizontal spread check looks at the whole set, not one pair", () => {
+  // Three points within 100 px of each other on a 6000 px photo.
+  assert.throws(() => fitCalibration([
+    { x: 100, y: 1500, az: 100, el: 2 },
+    { x: 150, y: 1500, az: 103, el: 2 },
+    { x: 200, y: 1500, az: 106, el: 2 },
+  ], PANO), /horizontally/i);
 });

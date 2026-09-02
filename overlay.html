@@ -20,8 +20,11 @@
     padding: 8px 12px; border-radius: 6px; border: none;
     background: #2e7d32; color: #fff; font-size: 0.85rem;
   }
-  #calStatus { font-size: 0.8rem; color: #aaa; flex-basis: 100%; }
+  :root { --color-muted: #aaa; }
+  #calStatus { font-size: 0.8rem; color: var(--color-muted); flex-basis: 100%; }
   #calStatus.pending { color: #fc6; }
+  #calResiduals { font-size: 0.8rem; color: var(--color-muted); margin: -4px 0 8px; line-height: 1.5; }
+  #calList label { display: inline-block; margin: 2px 12px 2px 0; }
   #wrap {
     position: relative; width: 100%; overflow-x: auto; background: #000;
     border-radius: 8px;
@@ -40,10 +43,13 @@
 <p id="hint">
   Upload a panorama photo taken near the antenna (any width/height --
   doesn't need to be a full 360&deg; equirectangular sphere; a normal
-  cylindrical panorama works too). Then click <strong>two</strong> points
-  in the photo whose real-world azimuth and elevation you know -- spread
-  them apart horizontally -- to calibrate. That gives the photo's real
-  degrees-per-pixel scale rather than a guessed field of view. The
+  cylindrical panorama works too). Then click points in the photo whose
+  real-world azimuth and elevation you know, spread apart horizontally,
+  to calibrate: <strong>two</strong> typed in by hand, or every landmark
+  you marked while surveying. That gives the photo's real
+  degrees-per-pixel scale rather than a guessed field of view. Three or
+  more marked landmarks also settle which way round the photo goes and
+  report how far each one lands from where it was recorded. The
   vertical scale is taken from the horizontal one, which is exact for an
   equirectangular panorama and means two landmarks at the same height
   calibrate just as well as two at different heights.
@@ -95,11 +101,12 @@
 </p>
 
 <div id="markedCalBox" style="display:none; padding:10px; background:#16161c; border-radius:8px; margin:0 0 10px; font-size:0.85rem;">
-  <div style="color:#c98a12; margin-bottom:6px;">&#9733; Use marked calibration points (no typing needed):</div>
-  <label>Point 1: <select id="calSelect1"></select></label>
-  <label id="calSelect2Label" style="margin-left:10px;">Point 2: <select id="calSelect2"></select></label>
-  <button id="useMarkedBtn" style="margin-left:10px; padding:6px 10px; border-radius:6px; border:none; background:#c98a12; color:#fff;">Use these &rarr; click photo twice</button>
+  <div style="color:#c98a12; margin-bottom:6px;">&#9733; Use marked calibration points (no typing needed), <span id="calListHint"></span></div>
+  <div id="calList"></div>
+  <button id="useMarkedBtn" style="margin-top:6px; padding:6px 10px; border-radius:6px; border:none; background:#c98a12; color:#fff;">Use ticked points &rarr; click each in the photo</button>
 </div>
+
+<div id="calResiduals" style="display:none;"></div>
 
 <p id="importNote" style="display:none; color:#7cf; font-size:0.85rem;">
   Showing the points from the loaded CSV file. They are not written to
@@ -123,7 +130,7 @@
 import {
   fitCalibration, fitCalibration360, trimBounds, photoSpanDeg,
   azToX, xToAz, elToY, yToEl, toHorizonProfile,
-} from "./geometry.js?v=7";
+} from "./geometry.js?v=8";
 import { buildZip, debugBundle, pointsToCsv } from "./debug.js?v=1";
 
 // Where "Send debug" offers to mail the bundle. Left empty on purpose: this
@@ -154,7 +161,7 @@ const DEBUG_MAIL_TO = "";
   // geometry.js. See there for why the vertical scale is not fitted
   // independently by default.
   let cal = null;
-  let calPoints = []; // pixel clicks collected during calibration, up to 2
+  let calPoints = []; // pixel clicks collected during calibration, one per target
   let awaitingCalClick = false;
   // When calibrating from marked points, their az/el is already known --
   // pendingCalTargets holds those, so clicks only need to supply pixels.
@@ -189,19 +196,27 @@ const DEBUG_MAIL_TO = "";
 
   function updateMarkedCalUI() {
     const marked = points.filter((p) => p.cal);
+    const fixed = $("fixed360").checked;
     const box = $("markedCalBox");
-    if (marked.length < 2) { box.style.display = "none"; return; }
+    if (marked.length < (fixed ? 1 : 2)) { box.style.display = "none"; return; }
     box.style.display = "block";
-    for (const sel of [$("calSelect1"), $("calSelect2")]) {
-      sel.innerHTML = "";
-      marked.forEach((p, i) => {
-        const opt = document.createElement("option");
-        opt.value = i;
-        opt.textContent = p.az.toFixed(1) + "° / " + p.el.toFixed(1) + "°" + (p.t ? " (" + p.t.slice(0, 16) + ")" : "");
-        sel.appendChild(opt);
-      });
-    }
-    if ($("calSelect2").options.length > 1) $("calSelect2").selectedIndex = 1;
+    $("calListHint").textContent = fixed
+      ? "tick the one to use:"
+      : "tick the ones you can find in the photo (three or more settle which way round it goes):";
+    const list = $("calList");
+    list.innerHTML = "";
+    marked.forEach((p, i) => {
+      const label = document.createElement("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = i;
+      cb.checked = fixed ? i === 0 : true;
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(
+        " " + p.az.toFixed(1) + "° / " + p.el.toFixed(1) + "°" + (p.t ? " (" + p.t.slice(0, 16) + ")" : ""),
+      ));
+      list.appendChild(label);
+    });
   }
 
   function parseCsv(text) {
@@ -321,6 +336,41 @@ const DEBUG_MAIL_TO = "";
     const el = $("calStatus");
     el.textContent = msg;
     el.className = pending ? "pending" : "";
+  }
+
+  function clearResiduals() {
+    $("calResiduals").style.display = "none";
+  }
+
+  // "+2.0", "-4.0", or "0.0" -- never "-0.0" for a rounding-error negative.
+  function signed(v) {
+    const r = Math.round(v * 10) / 10;
+    return (r > 0 ? "+" : (r < 0 ? "-" : "")) + Math.abs(r).toFixed(1);
+  }
+
+  // One line per calibration point: where the fit puts it relative to
+  // where it was recorded. The pattern across the points is the diagnosis
+  // (see #34): growing with distance from the others means the scale is
+  // off, scattered with no order means the compass was disturbed.
+  function showResiduals() {
+    const box = $("calResiduals");
+    if (calPoints.length < 3) {
+      box.textContent = "Two points always fit exactly, so there is nothing to check here. "
+        + "Mark a third landmark on the survey page to get a check.";
+    } else {
+      box.innerHTML = "";
+      box.appendChild(document.createTextNode(
+        "How far the fit puts each calibration point from where it was recorded (fit minus recorded):",
+      ));
+      calPoints.forEach((p, i) => {
+        const r = cal.residuals[i];
+        box.appendChild(document.createElement("br"));
+        box.appendChild(document.createTextNode(
+          p.az.toFixed(1) + "°/" + p.el.toFixed(1) + "°: " + signed(r.az) + "° az, " + signed(r.el) + "° el",
+        ));
+      });
+    }
+    box.style.display = "block";
   }
 
   function draw() {
@@ -453,6 +503,7 @@ const DEBUG_MAIL_TO = "";
       // Reusing it for another one draws a horizon line that looks
       // entirely plausible and is wrong, so it is only restored when the
       // photo it was made for comes back.
+      clearResiduals();
       if (sameImage(storedCal && storedCal.image, imageKey)) {
         cal = storedCal;
         draw();
@@ -535,6 +586,7 @@ const DEBUG_MAIL_TO = "";
           w: img.naturalWidth, h: img.naturalHeight, size: blob.size, modified: Date.now(),
         };
         cal = null;
+        clearResiduals();
         trimming = false;
         trimClicks = [];
         $("addPointModeBtn").disabled = true;
@@ -613,36 +665,38 @@ const DEBUG_MAIL_TO = "";
   $("fixed360").addEventListener("change", () => {
     const on = $("fixed360").checked;
     $("reverseDirLabel").style.display = on ? "inline" : "none";
-    $("calSelect2Label").style.display = on ? "none" : "inline";
     $("independentVerticalLabel").style.display = on ? "none" : "inline";
+    updateMarkedCalUI();
   });
 
   $("useMarkedBtn").addEventListener("click", () => {
     if (!img) { setStatus("load a photo first", true); return; }
     const marked = points.filter((p) => p.cal);
-    const i1 = parseInt($("calSelect1").value, 10);
+    const picked = [...$("calList").querySelectorAll("input:checked")].map((cb) => marked[parseInt(cb.value, 10)]);
     if ($("fixed360").checked) {
-      pendingCalTargets = [marked[i1]];
-    } else {
-      const i2 = parseInt($("calSelect2").value, 10);
-      if (i1 === i2) { setStatus("pick two different points", true); return; }
-      pendingCalTargets = [marked[i1], marked[i2]];
+      if (picked.length !== 1) { setStatus("tick exactly one point for a fixed-360° calibration", true); return; }
+    } else if (picked.length < 2) {
+      setStatus("tick at least two points", true);
+      return;
     }
+    pendingCalTargets = picked;
     calPoints = [];
     awaitingCalClick = true;
-    const n = pendingCalTargets.length;
-    setStatus("click where " + marked[i1].az.toFixed(1) + "°/" + marked[i1].el.toFixed(1) + "° is in the photo"
-      + (n > 1 ? " (1 of 2)" : ""), true);
+    clearResiduals();
+    const n = picked.length;
+    setStatus("click where " + picked[0].az.toFixed(1) + "°/" + picked[0].el.toFixed(1) + "° is in the photo"
+      + (n > 1 ? " (1 of " + n + ")" : ""), true);
   });
 
   function startCalibration() {
     pendingCalTargets = null;
     calPoints = [];
     awaitingCalClick = true;
+    clearResiduals();
     if ($("fixed360").checked) {
       setStatus("click one known landmark -- this photo is assumed to cover exactly 360°", true);
     } else {
-      setStatus("click a known landmark (1 of 2) -- pick points spread apart for accuracy", true);
+      setStatus("click a known landmark (1 of 2) -- two points must be less than half a turn apart in azimuth", true);
     }
   }
 
@@ -654,7 +708,7 @@ const DEBUG_MAIL_TO = "";
           direction: $("reverseDirection").checked ? -1 : 1,
         });
       } else {
-        cal = fitCalibration(calPoints[0], calPoints[1], {
+        cal = fitCalibration(calPoints, {
           imageWidth: canvas.width,
           imageHeight: canvas.height,
           verticalScale: $("independentVertical").checked ? "independent" : "isotropic",
@@ -668,13 +722,23 @@ const DEBUG_MAIL_TO = "";
     }
     saveCalibration();
     awaitingCalClick = false;
-    // The span is the sanity check: the fit is exact at both points you
-    // clicked however wrong the scale between them is, so a bad calibration
-    // looks fine right where you looked. You can see for yourself roughly
-    // how much of the horizon the photo shows, so a number that disagrees
-    // with your own eyes is the signal that something is off.
-    const span = "this photo covers " + photoSpanDeg(cal, canvas.width).toFixed(0) + "° of azimuth";
-    setStatus(cal.warning ? "calibrated (" + span + "), but " + cal.warning : "calibrated -- " + span, !!cal.warning);
+    // The span is the sanity check: a two-point fit is exact at both points
+    // you clicked however wrong the scale between them is, so a bad
+    // calibration looks fine right where you looked. You can see for
+    // yourself roughly how much of the horizon the photo shows, so a number
+    // that disagrees with your own eyes is the signal that something is off.
+    // From three points on the residuals say it directly.
+    let span = "this photo covers " + photoSpanDeg(cal, canvas.width).toFixed(0) + "° of azimuth";
+    let how = "calibrated";
+    if (!$("fixed360").checked) {
+      how += " on " + calPoints.length + " points";
+      if (calPoints.length > 2) {
+        const worst = Math.max(...cal.residuals.map((r) => Math.max(Math.abs(r.az), Math.abs(r.el))));
+        span += ", worst point " + worst.toFixed(1) + "° off";
+      }
+      showResiduals();
+    }
+    setStatus(cal.warning ? how + " (" + span + "), but " + cal.warning : how + " -- " + span, !!cal.warning);
     $("addPointModeBtn").disabled = false;
     draw();
   }

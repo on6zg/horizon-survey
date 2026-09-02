@@ -67,7 +67,7 @@ test("a calibrated photo maps pixels back to the angles that were entered", { sk
   // 1200 px wide, and we declare 100 px = az 100 and 700 px = az 136, so the
   // scale is 0.06 deg/px. Halfway between them must read az 118.
   await calibrate(page, panoA, { x: 100, y: 200, az: 100, el: 2 }, { x: 700, y: 200, az: 136, el: 2 });
-  assert.match((await page.textContent("#calStatus")).trim(), /^calibrated --/);
+  assert.match((await page.textContent("#calStatus")).trim(), /^calibrated on 2 points --/);
 
   const mid = await page.evaluate(() => {
     const cal = JSON.parse(localStorage.getItem("horizonSurveyCalibration"));
@@ -116,7 +116,7 @@ test("adding a point while showing an imported CSV also leaves storage alone", {
 test("a calibration is not reused for a different photo", { skip }, async () => {
   const { page, context } = await overlayPage();
   await calibrate(page, panoA, { x: 100, y: 200, az: 100, el: 2 }, { x: 700, y: 210, az: 136, el: 2 });
-  assert.match((await page.textContent("#calStatus")).trim(), /^calibrated --/);
+  assert.match((await page.textContent("#calStatus")).trim(), /^calibrated on 2 points --/);
 
   await page.goto(server.url("overlay.html"));
   await page.setInputFiles("#fileInput", panoB);
@@ -182,5 +182,86 @@ test("the reported span is what betrays a calibration that took the wrong way ro
   const status = (await page.textContent("#calStatus")).trim();
   const span = Number(status.match(/covers (\d+)°/)[1]);
   assert.ok(span < 120, `a mis-scaled fit should report a small span, reported ${span}`);
+  await context.close();
+});
+
+// Three marked calibration points at az 130, 280 and 70, which on a 1200 px
+// photo at 0.3 deg/px sit at x=100, 600 and 1100. The outer two are 300
+// degrees apart, so a two-point fit would take the 60 degree short way; the
+// middle one says otherwise.
+const THREE_MARKED = [
+  { az: 130, el: 2, t: "2026-01-01T00:00:00.000Z", cal: true },
+  { az: 280, el: 2, t: "2026-01-01T00:00:01.000Z", cal: true },
+  { az: 70, el: 2, t: "2026-01-01T00:00:02.000Z", cal: true },
+];
+
+/** Load a photo, then calibrate on the ticked marked points by clicking each. */
+async function calibrateOnMarked(page, photo, xs) {
+  await page.setInputFiles("#fileInput", photo);
+  await waitForCanvas(page, 1200);
+  await page.click("#useMarkedBtn");
+  for (const x of xs) {
+    await page.click("#canvas", { position: { x, y: 200 } });
+    await page.waitForTimeout(150);
+  }
+  await page.waitForTimeout(250);
+}
+
+test("every marked point is offered, and a fit over three takes the way round they agree on", { skip }, async () => {
+  const { page, context } = await overlayPage({ survey: THREE_MARKED });
+  await page.setInputFiles("#fileInput", panoA);
+  await waitForCanvas(page, 1200);
+  assert.equal(await page.locator("#calList input[type=checkbox]").count(), 3);
+  assert.equal(await page.locator("#calList input[type=checkbox]:checked").count(), 3, "all ticked by default");
+
+  await page.click("#useMarkedBtn");
+  for (const x of [100, 600, 1100]) {
+    await page.click("#canvas", { position: { x, y: 200 } });
+    await page.waitForTimeout(150);
+  }
+  await page.waitForTimeout(250);
+  const status = (await page.textContent("#calStatus")).trim();
+  assert.match(status, /^calibrated on 3 points --/);
+  assert.match(status, /this photo covers 360° of azimuth/);
+  await context.close();
+});
+
+test("a marked point recorded off its bearing is named with how far off it lands", { skip }, async () => {
+  const survey = THREE_MARKED.map((p, i) => (i === 1 ? { ...p, az: 286 } : p));
+  const { page, context } = await overlayPage({ survey });
+  await calibrateOnMarked(page, panoA, [100, 600, 1100]);
+  assert.match((await page.textContent("#calStatus")).trim(), /worst point 4\.0° off/);
+  const residuals = (await page.textContent("#calResiduals")).replace(/\s+/g, " ");
+  assert.match(residuals, /286\.0°\/2\.0°: -4\.0° az/);
+  await context.close();
+});
+
+test("an unticked marked point is left out of the fit", { skip }, async () => {
+  const { page, context } = await overlayPage({ survey: THREE_MARKED });
+  await page.setInputFiles("#fileInput", panoA);
+  await waitForCanvas(page, 1200);
+  await page.locator("#calList input[type=checkbox]").nth(2).uncheck();
+  await page.click("#useMarkedBtn");
+  for (const x of [100, 600]) {
+    await page.click("#canvas", { position: { x, y: 200 } });
+    await page.waitForTimeout(150);
+  }
+  await page.waitForTimeout(250);
+  assert.match((await page.textContent("#calStatus")).trim(), /^calibrated on 2 points --/);
+  await context.close();
+});
+
+test("in fixed-360 mode the marked list offers the points singly and calibrates from one", { skip }, async () => {
+  const { page, context } = await overlayPage({ survey: THREE_MARKED });
+  await page.setInputFiles("#fileInput", panoA);
+  await waitForCanvas(page, 1200);
+  await page.check("#fixed360");
+  assert.equal(await page.locator("#calList input[type=checkbox]:checked").count(), 1, "one ticked by default");
+  await page.click("#useMarkedBtn");
+  await page.click("#canvas", { position: { x: 100, y: 200 } });
+  await page.waitForTimeout(250);
+  const status = (await page.textContent("#calStatus")).trim();
+  assert.match(status, /^calibrated -- this photo covers 360° of azimuth/);
+  assert.equal(await page.isVisible("#calResiduals"), false, "nothing to check from one point");
   await context.close();
 });
