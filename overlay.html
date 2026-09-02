@@ -482,6 +482,18 @@ const DEBUG_MAIL_TO = "";
     setStatus("click the same landmark where it first appears, near the left edge (1 of 2)", true);
   });
 
+  // A freshly created canvas is fully transparent (alpha 0) everywhere; a
+  // drawImage() that actually painted something leaves alpha 255 under any
+  // opaque photo. Sampling three points rather than the whole canvas avoids
+  // a multi-megapixel getImageData() read on every trim.
+  function canvasHasContent(ctx, w, h) {
+    const y = Math.floor(h / 2);
+    return [Math.floor(w / 4), Math.floor(w / 2), Math.floor(3 * w / 4)].some((x) => {
+      const [, , , a] = ctx.getImageData(x, y, 1, 1).data;
+      return a !== 0;
+    });
+  }
+
   // The two clicks mark one real-world direction that appears twice because
   // the photo's capture overshot 360 degrees -- everything between them is
   // exactly one non-repeating sweep. See trimBounds() in geometry.js.
@@ -504,11 +516,38 @@ const DEBUG_MAIL_TO = "";
       trimClicks = [];
       return;
     }
+    let finalWidth = bounds.width;
     const trimCanvas = document.createElement("canvas");
-    trimCanvas.width = bounds.width;
+    trimCanvas.width = finalWidth;
     trimCanvas.height = img.naturalHeight;
-    trimCanvas.getContext("2d")
-      .drawImage(img, bounds.left, 0, bounds.width, img.naturalHeight, 0, 0, bounds.width, img.naturalHeight);
+    const trimCtx = trimCanvas.getContext("2d");
+    trimCtx.drawImage(img, bounds.left, 0, bounds.width, img.naturalHeight, 0, 0, bounds.width, img.naturalHeight);
+    if (!canvasHasContent(trimCtx, finalWidth, img.naturalHeight)) {
+      // Some browsers (iOS Safari historically) silently leave a canvas
+      // blank instead of throwing when its pixel area exceeds a
+      // platform-specific cap -- toBlob() then "succeeds" with an
+      // all-transparent image and nothing downstream notices. Retry once
+      // at MAX_CANVAS_WIDTH, the same bound already used for the display
+      // canvas -- but only if that is actually smaller than what was just
+      // tried, otherwise the retry cannot possibly help.
+      if (bounds.width <= MAX_CANVAS_WIDTH) {
+        setStatus("could not create the trimmed image -- the browser left the canvas blank, try a smaller photo", true);
+        trimming = false;
+        trimClicks = [];
+        return;
+      }
+      const shrink = MAX_CANVAS_WIDTH / bounds.width;
+      finalWidth = MAX_CANVAS_WIDTH;
+      trimCanvas.width = finalWidth;
+      trimCanvas.height = Math.round(img.naturalHeight * shrink);
+      trimCtx.drawImage(img, bounds.left, 0, bounds.width, img.naturalHeight, 0, 0, trimCanvas.width, trimCanvas.height);
+      if (!canvasHasContent(trimCtx, finalWidth, trimCanvas.height)) {
+        setStatus("could not create the trimmed image -- the browser left the canvas blank even at a reduced size, try a smaller photo", true);
+        trimming = false;
+        trimClicks = [];
+        return;
+      }
+    }
     trimCanvas.toBlob((blob) => {
       if (!blob) {
         setStatus("could not create the trimmed image -- the photo may be too large for this device", true);
@@ -541,7 +580,7 @@ const DEBUG_MAIL_TO = "";
         $("downloadTrimmedBtn").style.display = "inline";
         draw();
         setStatus(
-          "trimmed to " + bounds.width + "px, should now be exactly 360° -- calibrate again "
+          "trimmed to " + finalWidth + "px, should now be exactly 360° -- calibrate again "
           + "(tick \"photo covers exactly 360°\" above for a one-point calibration)",
           true,
         );
