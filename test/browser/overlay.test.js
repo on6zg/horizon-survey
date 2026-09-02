@@ -67,7 +67,7 @@ test("a calibrated photo maps pixels back to the angles that were entered", { sk
   // 1200 px wide, and we declare 100 px = az 100 and 700 px = az 136, so the
   // scale is 0.06 deg/px. Halfway between them must read az 118.
   await calibrate(page, panoA, { x: 100, y: 200, az: 100, el: 2 }, { x: 700, y: 200, az: 136, el: 2 });
-  assert.equal((await page.textContent("#calStatus")).trim(), "calibrated");
+  assert.match((await page.textContent("#calStatus")).trim(), /^calibrated --/);
 
   const mid = await page.evaluate(() => {
     const cal = JSON.parse(localStorage.getItem("horizonSurveyCalibration"));
@@ -116,7 +116,7 @@ test("adding a point while showing an imported CSV also leaves storage alone", {
 test("a calibration is not reused for a different photo", { skip }, async () => {
   const { page, context } = await overlayPage();
   await calibrate(page, panoA, { x: 100, y: 200, az: 100, el: 2 }, { x: 700, y: 210, az: 136, el: 2 });
-  assert.equal((await page.textContent("#calStatus")).trim(), "calibrated");
+  assert.match((await page.textContent("#calStatus")).trim(), /^calibrated --/);
 
   await page.goto(server.url("overlay.html"));
   await page.setInputFiles("#fileInput", panoB);
@@ -258,5 +258,27 @@ test("two clicks too close together are refused rather than cropping the photo a
   assert.match((await page.textContent("#calStatus")).trim(), /too close together/i);
   assert.equal(await page.evaluate(() => document.getElementById("canvas").width), 1200,
     "the photo must be left alone when the clicks are refused");
+  await context.close();
+});
+
+test("calibrating reports how much of the horizon the photo covers", { skip }, async () => {
+  const { page, context } = await overlayPage();
+  // 1200 px wide, 100 px = az 100 and 700 px = az 136, so 0.06 deg/px and
+  // the photo covers 1200 * 0.06 = 72 degrees.
+  await calibrate(page, panoA, { x: 100, y: 200, az: 100, el: 2 }, { x: 700, y: 200, az: 136, el: 2 });
+  assert.match((await page.textContent("#calStatus")).trim(), /this photo covers 72° of azimuth/);
+  await context.close();
+});
+
+test("the reported span is what betrays a calibration that took the wrong way round", { skip }, async () => {
+  const { page, context } = await overlayPage();
+  // Two landmarks 300 degrees apart on a photo that really turns all the
+  // way round. fitCalibration takes the 60 degree short way, and the span
+  // it then reports is the visible symptom of that: nothing like a photo
+  // you can see goes most of the way round.
+  await calibrate(page, panoA, { x: 100, y: 200, az: 109, el: 2 }, { x: 1100, y: 200, az: 49, el: 2 });
+  const status = (await page.textContent("#calStatus")).trim();
+  const span = Number(status.match(/covers (\d+)°/)[1]);
+  assert.ok(span < 120, `a mis-scaled fit should report a small span, reported ${span}`);
   await context.close();
 });

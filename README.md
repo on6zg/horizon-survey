@@ -105,6 +105,15 @@ well as two at different heights. If your photo has been scaled unevenly
 so that is no longer true, tick **fit vertical scale separately** before
 calibrating, and pick points well apart vertically too.
 
+After calibrating, the status line reports **how much of the horizon the
+photo covers** according to that calibration. That number is the sanity
+check worth looking at every time: the fit is exact at the two points you
+clicked no matter how wrong the scale between them is, so a bad
+calibration looks right where you looked and is wrong everywhere else.
+You can see with your own eyes roughly how far round a photo turns, so if
+a photo that plainly covers most of the horizon reports 72&deg;, the
+calibration is wrong and the next paragraph is why.
+
 **A pitfall with two widely-spread calibration points.** Two azimuths on
 their own don't say which way around the circle they're apart -- 109&deg;
 to 359&deg; could be a 110&deg; gap or a 250&deg; one. The tool always
@@ -186,6 +195,36 @@ photo the mast/antenna itself still blocks is fine to leave as-is -- the
 recorded horizon-line data comes from your walk-around survey, not the
 photo, so it stays accurate there regardless of what the photo shows in
 that slice.
+
+## Reporting a problem
+
+Both pages have a **Send debug** button. It does not send anything: a
+browser cannot attach a file to an email, and this tool has no server to
+do it for it. What it does is collect everything into one `.zip` that you
+can attach to a
+[GitHub issue](https://github.com/on6zg/horizon-survey/issues) or to a
+mail yourself.
+
+The survey page's bundle holds your points, what device and browser you
+are on, and **the raw orientation events exactly as the browser delivered
+them**. That last part is the reason the button exists: it is the only
+record of what the sensor actually said rather than what the maths made
+of it, and it is the difference between a compass with a constant offset
+and one being pulled around by something nearby. Neither of those is
+visible in a CSV.
+
+The overlay page's bundle holds your points, the calibration and the span
+it implies, and **the photo exactly as you picked it, bytes untouched**.
+The original file matters more than a re-saved copy: a Photo Sphere
+records its own projection and how many degrees it covers in its
+metadata, which says outright whether the pixel-to-degree assumptions
+hold for your photo.
+
+**That also means the bundle carries whatever the camera wrote into the
+photo, which on most phones includes where it was taken.** Open the zip
+and look before you attach it anywhere; `debug.json` is plain text and
+the photo is the file you already have. Strip the metadata first, or send
+it privately, if you would rather not publish your site's location.
 
 ## Camera zoom
 

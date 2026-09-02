@@ -74,6 +74,7 @@
   <button id="downloadCsvBtn">Download CSV</button>
   <button id="downloadJsonBtn">Download JSON</button>
   <button id="downloadImgBtn">Download image</button>
+  <button id="debugBtn" style="background:#555;">Send debug&hellip;</button>
   <label style="font-size:0.8rem; color:#ccc;" title="Only for a photo that is a genuine closed-loop 360 capture (a proper Photo Sphere, or one trimmed with the button above) -- not a sweep panorama with overlap. Fixes the scale at 360/width instead of deriving it from two azimuths, so calibration needs only one point and there is no wraparound ambiguity to get wrong.">
     <input type="checkbox" id="fixed360"> photo covers exactly 360&deg;
   </label>
@@ -120,8 +121,15 @@
 // ?v= is a cache buster: bump it in the same commit as any geometry.js
 // change, so a browser holding an old copy cannot pair it with a new page.
 import {
-  fitCalibration, fitCalibration360, trimBounds, azToX, xToAz, elToY, yToEl, toHorizonProfile,
-} from "./geometry.js?v=6";
+  fitCalibration, fitCalibration360, trimBounds, photoSpanDeg,
+  azToX, xToAz, elToY, yToEl, toHorizonProfile,
+} from "./geometry.js?v=7";
+import { buildZip, debugBundle, pointsToCsv } from "./debug.js?v=1";
+
+// Where "Send debug" offers to mail the bundle. Left empty on purpose: this
+// is the maintainer's address to set, not something to bake in. Empty means
+// the button downloads the file and says to attach it to an issue.
+const DEBUG_MAIL_TO = "";
 
 (function () {
   "use strict";
@@ -163,6 +171,7 @@ import {
   let trimming = false; // collecting the two "same landmark, seen twice" clicks
   let trimClicks = [];
   let trimmedBlob = null; // the clean cropped photo, for Download trimmed photo
+  let photoFile = null;   // the file as the user picked it, metadata and all
 
   function persistPoints() {
     if (pointsAreImported) return;
@@ -241,8 +250,9 @@ import {
     download(csv, "text/csv", "horizon_survey", "csv");
   });
 
-  function download(text, mime, base, ext) {
-    const blob = new Blob([text], { type: mime });
+  // `data` is a string or a Uint8Array; Blob takes either.
+  function download(data, mime, base, ext) {
+    const blob = new Blob([data], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -423,6 +433,7 @@ import {
   $("fileInput").addEventListener("change", (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    photoFile = file;
     const url = URL.createObjectURL(file);
     img = new Image();
     img.onerror = () => {
@@ -445,7 +456,8 @@ import {
       if (sameImage(storedCal && storedCal.image, imageKey)) {
         cal = storedCal;
         draw();
-        setStatus("calibrated (restored for this photo)");
+        setStatus("calibrated (restored for this photo) -- this photo covers "
+          + photoSpanDeg(cal, canvas.width).toFixed(0) + "° of azimuth");
         $("addPointModeBtn").disabled = false;
       } else {
         cal = null;
@@ -599,6 +611,53 @@ import {
     URL.revokeObjectURL(url);
   });
 
+  // A browser cannot send mail with an attachment, so this collects
+  // everything into one file the user can attach themselves. The original
+  // photo goes in as picked, bytes untouched, because its EXIF/XMP is often
+  // the most useful thing in the whole bundle: a Photo Sphere records its own
+  // projection and how many degrees it covers.
+  $("debugBtn").addEventListener("click", async () => {
+    const enc = new TextEncoder();
+    const files = [];
+    const photo = photoFile
+      ? { name: photoFile.name, type: photoFile.type, bytes: photoFile.size,
+          natural_width: img ? img.naturalWidth : null, natural_height: img ? img.naturalHeight : null,
+          aspect: img && img.naturalHeight ? +(img.naturalWidth / img.naturalHeight).toFixed(4) : null,
+          canvas_width: canvas.width, canvas_height: canvas.height, trimmed: !!trimmedBlob }
+      : null;
+
+    const bundle = debugBundle({
+      page: "overlay",
+      points,
+      calibration: cal ? { ...cal, span_deg: +photoSpanDeg(cal, canvas.width).toFixed(2) } : null,
+      photo,
+      device: {
+        user_agent: navigator.userAgent,
+        screen: screen.width + "x" + screen.height,
+        device_pixel_ratio: window.devicePixelRatio,
+      },
+      notes: {
+        points_are_imported: pointsAreImported,
+        fixed360: $("fixed360").checked,
+        reverse_direction: $("reverseDirection").checked,
+        independent_vertical: $("independentVertical").checked,
+        max_canvas_width: MAX_CANVAS_WIDTH,
+      },
+    });
+
+    files.push({ name: "debug.json", data: enc.encode(JSON.stringify(bundle, null, 2)) });
+    if (points.length) files.push({ name: "points.csv", data: enc.encode(pointsToCsv(points)) });
+    if (photoFile) files.push({ name: "photo-" + photoFile.name, data: new Uint8Array(await photoFile.arrayBuffer()) });
+    if (trimmedBlob) files.push({ name: "photo-trimmed.jpg", data: new Uint8Array(await trimmedBlob.arrayBuffer()) });
+
+    download(buildZip(files), "application/zip", "horizon_debug", "zip");
+    setStatus(
+      "debug bundle downloaded (" + files.map((f) => f.name).join(", ") + "). "
+      + (DEBUG_MAIL_TO ? "Mail it to " + DEBUG_MAIL_TO + "." : "Attach it to the issue you are reporting.")
+      + " It contains your photo exactly as you picked it, so it carries whatever location the camera wrote into it.",
+    );
+  });
+
   $("fixed360").addEventListener("change", () => {
     const on = $("fixed360").checked;
     $("reverseDirLabel").style.display = on ? "inline" : "none";
@@ -657,7 +716,13 @@ import {
     }
     saveCalibration();
     awaitingCalClick = false;
-    setStatus(cal.warning ? "calibrated, but " + cal.warning : "calibrated", !!cal.warning);
+    // The span is the sanity check: the fit is exact at both points you
+    // clicked however wrong the scale between them is, so a bad calibration
+    // looks fine right where you looked. You can see for yourself roughly
+    // how much of the horizon the photo shows, so a number that disagrees
+    // with your own eyes is the signal that something is off.
+    const span = "this photo covers " + photoSpanDeg(cal, canvas.width).toFixed(0) + "° of azimuth";
+    setStatus(cal.warning ? "calibrated (" + span + "), but " + cal.warning : "calibrated -- " + span, !!cal.warning);
     $("addPointModeBtn").disabled = false;
     draw();
   }

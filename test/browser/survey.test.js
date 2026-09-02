@@ -11,7 +11,7 @@ import fs from "node:fs";
 import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 
-import { loadPlaywright, SKIP, startServer, feedOrientation } from "./helpers.mjs";
+import { loadPlaywright, SKIP, startServer, feedOrientation, readZipNames, readZipEntry } from "./helpers.mjs";
 
 const chromium = await loadPlaywright();
 const skip = chromium ? false : SKIP;
@@ -154,5 +154,68 @@ test("the spread readout warns while the compass is being pulled around", { skip
   const spread = (await page.textContent("#spread")).trim();
   assert.match(spread, /^±\d+\.\d°/, `spread readout was ${JSON.stringify(spread)}`);
   assert.equal(await page.getAttribute("#spread", "class"), "wide");
+  await context.close();
+});
+
+test("Send debug produces a bundle carrying the raw sensor events", { skip }, async () => {
+  const { page, context } = await surveyPage();
+  await start(page);
+  for (const [alpha, beta, gamma] of [[0, 100, 0], [1, 100.2, 2], [359, 99.8, -1], [2, 100, 0], [0, 100.1, 1]]) {
+    await feedOrientation(page, alpha, beta, gamma);
+    await page.waitForTimeout(40);
+  }
+  await page.click("#recordBtn");
+  await page.waitForTimeout(200);
+
+  const download = page.waitForEvent("download");
+  await page.click("#debugBtn");
+  const d = await download;
+  assert.match(d.suggestedFilename(), /^horizon_debug_.*\.zip$/);
+
+  const zip = fs.readFileSync(await d.path());
+  const entries = readZipNames(zip);
+  assert.deepEqual(entries.sort(), ["debug.json", "points.csv"]);
+
+  const bundle = JSON.parse(readZipEntry(zip, "debug.json"));
+  assert.equal(bundle.page, "survey");
+  assert.equal(bundle.counts.points, 1);
+  // Chromium delivers orientation events of its own, with null angles,
+  // alongside the ones dispatched here. That is what a real device does too,
+  // and recording both is the point, so the assertions are about the usable
+  // ones rather than about the total.
+  const usable = bundle.orientation_samples.filter((r) => r.absolute && typeof r.alpha === "number");
+  assert.ok(usable.length >= 5, `expected the five fed events, got ${usable.length}`);
+  const raw = usable.at(-1);
+  assert.equal(typeof raw.beta, "number");
+  assert.equal(typeof raw.gamma, "number", "gamma is what a two-angle reading would have thrown away");
+  assert.ok(bundle.notes.event_counts.total >= usable.length);
+  assert.ok(bundle.device.user_agent.length > 0);
+  await context.close();
+});
+
+test("a bundle from a device with no compass reference records that it had none", { skip }, async () => {
+  const { page, context } = await surveyPage();
+  await start(page);
+  await page.evaluate(() => {
+    for (let i = 0; i < 3; i++) {
+      const e = new Event("deviceorientation");
+      Object.defineProperties(e, {
+        alpha: { value: 42 }, beta: { value: 100 }, gamma: { value: 0 }, absolute: { value: false },
+      });
+      window.dispatchEvent(e);
+    }
+  });
+  await page.waitForTimeout(150);
+
+  const download = page.waitForEvent("download");
+  await page.click("#debugBtn");
+  const bundle = JSON.parse(readZipEntry(fs.readFileSync(await (await download).path()), "debug.json"));
+  // What matters is that no event ever produced a usable heading, not the
+  // exact tally: the browser contributes events of its own here.
+  assert.equal(bundle.notes.have_absolute_heading, false);
+  assert.ok(bundle.notes.event_counts.unusable >= 3, "the unusable events must be counted");
+  assert.equal(bundle.orientation_samples.filter((r) => r.absolute && typeof r.alpha === "number").length, 0,
+    "nothing in the bundle should look like a usable absolute reading");
+  assert.equal(bundle.counts.points, 0);
   await context.close();
 });
