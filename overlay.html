@@ -504,11 +504,14 @@ const DEBUG_MAIL_TO = "";
       trimClicks = [];
       return;
     }
-    const trimCanvas = document.createElement("canvas");
-    trimCanvas.width = bounds.width;
-    trimCanvas.height = img.naturalHeight;
-    trimCanvas.getContext("2d")
-      .drawImage(img, bounds.left, 0, bounds.width, img.naturalHeight, 0, 0, bounds.width, img.naturalHeight);
+    const trimCanvas = renderTrim(bounds);
+    if (!trimCanvas) {
+      setStatus("this device could not draw the trimmed photo at any size -- try a smaller photo", true);
+      trimming = false;
+      trimClicks = [];
+      return;
+    }
+    const shrunk = trimCanvas.width < bounds.width;
     trimCanvas.toBlob((blob) => {
       if (!blob) {
         setStatus("could not create the trimmed image -- the photo may be too large for this device", true);
@@ -541,14 +544,59 @@ const DEBUG_MAIL_TO = "";
         $("downloadTrimmedBtn").style.display = "inline";
         draw();
         setStatus(
-          "trimmed to " + bounds.width + "px, should now be exactly 360° -- calibrate again "
+          "trimmed to " + trimCanvas.width + "px"
+          + (shrunk ? " (scaled down from " + bounds.width + "px: this device could not draw it full size)" : "")
+          + ", should now be exactly 360° -- calibrate again "
           + "(tick \"photo covers exactly 360°\" above for a one-point calibration)",
           true,
         );
         URL.revokeObjectURL(url);
       };
       newImg.src = url;
-    }, "image/png");
+      // JPEG rather than PNG: the input is a photograph, and lossless costs
+      // about thirteen times the bytes and four times the encoding time for
+      // it. See #31 for the measurement. The angles never come from the
+      // photo, so a generation of re-encoding costs nothing that matters.
+    }, "image/jpeg", 0.92);
+  }
+
+  /**
+   * Draw the crop into its own canvas and confirm something actually landed
+   * in it, shrinking once if not.
+   *
+   * A canvas larger than the platform allows does not throw. It stays blank,
+   * and every later step then works on nothing: the reloaded photo is empty,
+   * the overlay draws on black, and the page says it succeeded. iOS Safari
+   * caps canvas area where desktop browsers do not, so a 12000x6000 photo
+   * can come out blank there and be fine here, which is the shape of the
+   * report in #32.
+   *
+   * Rather than guessing a width that is safe everywhere and downscaling
+   * every photo for the sake of the worst device, draw at full size, look,
+   * and only shrink when looking says nothing arrived.
+   */
+  function renderTrim(bounds) {
+    const full = bounds.width * img.naturalHeight;
+    // 4096x4096, the area limit iOS Safari has historically enforced.
+    const fallbackScale = Math.sqrt((4096 * 4096) / full);
+    for (const scale of fallbackScale < 1 ? [1, fallbackScale] : [1]) {
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(bounds.width * scale));
+      c.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      const cctx = c.getContext("2d");
+      cctx.drawImage(img, bounds.left, 0, bounds.width, img.naturalHeight, 0, 0, c.width, c.height);
+      if (canvasHasContent(cctx, c)) return c;
+    }
+    return null;
+  }
+
+  // Alpha, not brightness: a photo may legitimately be black, but a draw
+  // that never happened leaves the canvas fully transparent.
+  function canvasHasContent(cctx, c) {
+    for (const [fx, fy] of [[0.1, 0.1], [0.5, 0.5], [0.9, 0.9], [0.5, 0.1], [0.1, 0.9]]) {
+      if (cctx.getImageData(Math.floor(c.width * fx), Math.floor(c.height * fy), 1, 1).data[3] !== 0) return true;
+    }
+    return false;
   }
 
   $("downloadTrimmedBtn").addEventListener("click", () => {
@@ -556,7 +604,7 @@ const DEBUG_MAIL_TO = "";
     const url = URL.createObjectURL(trimmedBlob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "horizon_survey_trimmed_" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".png";
+    a.download = "horizon_survey_trimmed_" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".jpg";
     document.body.appendChild(a);
     a.click();
     a.remove();
