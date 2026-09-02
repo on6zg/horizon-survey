@@ -548,7 +548,7 @@ const DEBUG_MAIL_TO = "";
         URL.revokeObjectURL(url);
       };
       newImg.src = url;
-    }, "image/png");
+    }, "image/jpeg", 0.92);
   }
 
   $("downloadTrimmedBtn").addEventListener("click", () => {
@@ -556,7 +556,7 @@ const DEBUG_MAIL_TO = "";
     const url = URL.createObjectURL(trimmedBlob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "horizon_survey_trimmed_" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".png";
+    a.download = "horizon_survey_trimmed_" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".jpg";
     document.body.appendChild(a);
     a.click();
     a.remove();
